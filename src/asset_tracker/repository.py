@@ -135,9 +135,9 @@ def create_transaction(conn: sqlite3.Connection, t: models.Transaction) -> int:
     errs = t.validate()
     if errs:
         raise ValueError(f"invalid Transaction: {errs}")
-    # Auto-fill fee_amount if zero and channel has rules
-    if t.fee_amount == 0 and not t.external_id:
-        # only auto-fill on first-time writes; if external_id present, treat as import
+    # Auto-fill fee_amount from channel rules if caller didn't set one.
+    # external_id is for idempotency, NOT a fee-skip signal.
+    if t.fee_amount == 0.0:
         ch = get_channel(conn, t.channel_id)
         if ch and (ch.fee_pct or ch.fee_flat):
             t.fee_amount = ch.compute_fee(t.gross_amount)
