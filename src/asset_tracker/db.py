@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -25,6 +26,37 @@ def default_db_path() -> Path:
     if env:
         return Path(env).expanduser().resolve()
     return REPO_ROOT / "data" / "asset-tracker.db"
+
+
+def backups_dir() -> Path:
+    """Sprint 7: backups live next to the DB file, in a `backups/` subdir.
+
+    Honors AT_DB_PATH if set. For a connection opened against an arbitrary
+    db_path, use snapshot_to() instead — it derives the dir from the conn."""
+    return default_db_path().parent / "backups"
+
+
+def snapshot_to(conn: sqlite3.Connection, keep: int = 7) -> Path:
+    """Snapshot to a `backups/` dir adjacent to the actual connected DB file.
+
+    Differs from `backup.snapshot()` which uses the default_db_path. Use this
+    when the caller opened a connection against a non-default path (tests, etc).
+    """
+    src = Path(conn.execute("PRAGMA database_list").fetchone()["file"])
+    if str(src) == ":memory:" or not src.exists():
+        raise ValueError("cannot snapshot in-memory or missing database")
+    dest_dir = src.parent / "backups"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"asset-tracker-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.db"
+    with sqlite3.connect(str(dest)) as bconn:
+        conn.backup(bconn)
+    existing = sorted(dest_dir.glob("asset-tracker-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in existing[keep:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return dest
 
 
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:

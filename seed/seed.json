@@ -1,0 +1,100 @@
+{
+  "projects": [
+    {
+      "id": "skull-telegram-gateway",
+      "name": "Skull Telegram Gateway",
+      "category": "software",
+      "status": "active",
+      "description": "Local-first Telegram bot relay with launchd-ticker substrate.",
+      "tech_stack": "python,fastapi,sqlite",
+      "started_at": "2025-08-01T00:00:00+00:00",
+      "notes": "Primary Concierge substrate."
+    },
+    {
+      "id": "pmbbss-book",
+      "name": "PMBBSS Book",
+      "category": "content",
+      "status": "active",
+      "description": "Recovery + music memoir, drafted in Markdown.",
+      "tech_stack": "markdown,latex",
+      "started_at": "2025-11-15T00:00:00+00:00"
+    },
+    {
+      "id": "bandcamp-experimental",
+      "name": "Experimental Releases",
+      "category": "music",
+      "status": "dormant",
+      "description": "Ambient/electronic EPs on Bandcamp.",
+      "started_at": "2024-03-01T00:00:00+00:00"
+    },
+    {
+      "id": "herb-collab-dashboard",
+      "name": "Herb Collab Dashboard",
+      "category": "software",
+      "status": "active",
+      "description": "Cross-agent status visibility for Herb.",
+      "tech_stack": "python,fastapi,jinja",
+      "started_at": "2026-04-15T00:00:00+00:00"
+    },
+    {
+      "id": "morning-routine",
+      "name": "Morning Routine HALPH",
+      "category": "service",
+      "status": "active",
+      "description": "Agent-driven daily prep automation.",
+      "tech_stack": "python,sqlite,launchd",
+      "started_at": "2026-05-01T00:00:00+00:00"
+    }
+  ],
+  "income_channels": [
+    {
+      "project_id": "skull-telegram-gateway",
+      "name": "Gumroad MRR",
+      "platform": "gumroad",
+      "kind": "recurring",
+      "currency": "USD",
+      "fee_pct": 0.10,
+      "fee_flat": 0.0
+    },
+    {
+      "project_id": "pmbbss-book",
+      "name": "Gumroad book sales",
+      "platform": "gumroad",
+      "kind": "one_time",
+      "currency": "USD",
+      "fee_pct": 0.10
+    },
+    {
+      "project_id": "bandcamp-experimental",
+      "name": "Bandcamp sales",
+      "platform": "bandcamp",
+      "kind": "one_time",
+      "currency": "USD",
+      "fee_pct": 0.10,
+      "fee_flat": 0.0
+    },
+    {
+      "project_id": "herb-collab-dashboard",
+      "name": "GitHub Sponsors",
+      "platform": "github_sponsors",
+      "kind": "recurring",
+      "currency": "USD",
+      "fee_pct": 0.0
+    }
+  ],
+  "transactions": [
+    {"project_id": "skull-telegram-gateway", "channel_idx": 0, "occurred_at": "2026-06-15T12:00:00+00:00", "gross_amount": 50.0, "kind": "recurring"},
+    {"project_id": "skull-telegram-gateway", "channel_idx": 0, "occurred_at": "2026-06-22T12:00:00+00:00", "gross_amount": 75.0, "kind": "recurring"},
+    {"project_id": "pmbbss-book",         "channel_idx": 1, "occurred_at": "2026-05-30T09:30:00+00:00", "gross_amount": 22.0, "kind": "one_time"},
+    {"project_id": "pmbbss-book",         "channel_idx": 1, "occurred_at": "2026-06-12T15:45:00+00:00", "gross_amount": 18.0, "kind": "one_time"},
+    {"project_id": "bandcamp-experimental","channel_idx": 2, "occurred_at": "2026-04-20T18:10:00+00:00", "gross_amount": 7.0,  "kind": "one_time"},
+    {"project_id": "herb-collab-dashboard","channel_idx": 3, "occurred_at": "2026-06-01T00:05:00+00:00", "gross_amount": 25.0, "kind": "recurring"},
+    {"project_id": "herb-collab-dashboard","channel_idx": 3, "occurred_at": "2026-06-15T00:05:00+00:00", "gross_amount": 25.0, "kind": "recurring"}
+  ],
+  "time_logs": [
+    {"project_id": "skull-telegram-gateway", "minutes": 600, "started_at": "2026-06-14T10:00:00+00:00", "ended_at": "2026-06-14T20:00:00+00:00"},
+    {"project_id": "pmbbss-book",          "minutes": 240, "started_at": "2026-06-20T19:00:00+00:00", "ended_at": "2026-06-20T23:00:00+00:00"},
+    {"project_id": "bandcamp-experimental","minutes": 120, "started_at": "2026-04-15T13:00:00+00:00", "ended_at": "2026-04-15T15:00:00+00:00"},
+    {"project_id": "herb-collab-dashboard","minutes": 360, "started_at": "2026-06-10T18:00:00+00:00", "ended_at": "2026-06-11T00:00:00+00:00"}
+  ]
+}
