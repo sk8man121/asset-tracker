@@ -1,0 +1,6 @@
+# asset-tracker — stdlib-only Python, no external deps required.
+# The CLI, TUI, analytics engine, and SQLite layer all use Python stdlib.
+# (sqlite3, datetime, json, csv, dataclasses, argparse, logging)
+#
+# Optional dev tools:
+# pytest>=7.0

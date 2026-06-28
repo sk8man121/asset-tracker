@@ -1,0 +1,76 @@
+{
+  "loop_name": "asset-tracker",
+  "loop_tier": "RALPH",
+  "total_runs": 12,
+  "current_run": 1,
+  "started_at_utc": "2026-06-28T16:43:00Z",
+  "sprints": {
+    "1": {
+      "phase": "Foundations",
+      "title": "Requirements & Schema Definition",
+      "status": "in_progress",
+      "deliverables": [
+        "data-model.md — entity definitions",
+        ".ralph_loop_state (this file)",
+        "schema.sql — SQLite DDL"
+      ]
+    },
+    "2": {
+      "phase": "Foundations",
+      "title": "Environment & Repository Initialization",
+      "status": "pending"
+    },
+    "3": {
+      "phase": "Foundations",
+      "title": "Core Data Models",
+      "status": "pending"
+    },
+    "4": {
+      "phase": "Ingestion",
+      "title": "CLI / Input Interface",
+      "status": "pending"
+    },
+    "5": {
+      "phase": "Ingestion",
+      "title": "Calculation & Analytics Engine",
+      "status": "pending"
+    },
+    "6": {
+      "phase": "Ingestion",
+      "title": "Mid-Loop Audit & State Serialization",
+      "status": "pending"
+    },
+    "7": {
+      "phase": "Display",
+      "title": "Persistence Layer Stabilization",
+      "status": "pending"
+    },
+    "8": {
+      "phase": "Display",
+      "title": "Dashboard / Reporting View",
+      "status": "pending"
+    },
+    "9": {
+      "phase": "Display",
+      "title": "Extensibility Framework",
+      "status": "pending"
+    },
+    "10": {
+      "phase": "Refinement",
+      "title": "Validation & Error Handling",
+      "status": "pending"
+    },
+    "11": {
+      "phase": "Refinement",
+      "title": "Interface Polish & Configuration",
+      "status": "pending"
+    },
+    "12": {
+      "phase": "Refinement",
+      "title": "Loop Review, Final Build, & Handover Documentation",
+      "status": "pending"
+    }
+  },
+  "evidence_log": [],
+  "learnings": []
+}
