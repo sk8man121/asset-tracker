@@ -221,6 +221,12 @@ def cmd_integrations(args, conn):
         print(f"  {marker}  {c['name']:12}  {c['platform']:14}  {c['description']}")
 
 
+def cmd_import_mock(args, conn):
+    """Import synthetic NormalizedTxn records from a named connector."""
+    ins, skp = integrations.import_mock(conn, args.platform, count=args.count)
+    print(f"imported from {args.platform}: inserted={ins} skipped={skp}")
+
+
 # ---------- arg parser ----------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -320,6 +326,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     ig = sub.add_parser("integrations", help="List integration connector stubs")
     ig.set_defaults(func=cmd_integrations)
+
+    im = sub.add_parser("import-mock", help="Import synthetic txns from a connector (Sprint 9)")
+    im.add_argument("platform", choices=[c["name"] for c in integrations.list_connectors()])
+    im.add_argument("--count", type=int, default=5)
+    im.set_defaults(func=cmd_import_mock)
 
     return p
 
