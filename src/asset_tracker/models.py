@@ -117,19 +117,18 @@ class Transaction:
         errs = []
         if self.gross_amount < 0:
             errs.append("gross_amount must be ≥ 0")
-        if self.net_amount < 0:
-            errs.append("net_amount must be ≥ 0")
+        # net_amount can be negative ONLY for refunds (handled below). Reject otherwise.
         if self.fee_amount < 0:
             errs.append("fee_amount must be ≥ 0")
         if self.kind not in VALID_TX_KINDS:
             errs.append(f"kind {self.kind!r} not in {VALID_TX_KINDS}")
         if not self.currency or len(self.currency) != 3:
             errs.append("currency must be 3-char ISO 4217")
-        # Refunds: net should be ≤ 0 (returning money). Other kinds: net > 0.
+        # Refunds: net ≤ 0 (returning money). Other kinds: net ≥ 0 (free/comp tips allowed).
         if self.kind == "refund" and self.net_amount > 0:
             errs.append("refund transactions must have net_amount ≤ 0")
-        elif self.kind != "refund" and self.net_amount <= 0:
-            errs.append("non-refund transactions must have net_amount > 0")
+        elif self.kind != "refund" and self.net_amount < 0:
+            errs.append("non-refund transactions must have net_amount ≥ 0")
         return errs
 
     def to_dict(self) -> dict:

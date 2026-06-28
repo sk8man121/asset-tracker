@@ -255,7 +255,7 @@ def t10():
     assert any("refund" in e for e in t.validate())
     t2 = models.Transaction(id=None, project_id="x", channel_id=1,
                              occurred_at="2026-01-01T00:00:00+00:00",
-                             gross_amount=10.0, currency="USD", net_amount=0.0, kind="one_time")
+                             gross_amount=10.0, currency="USD", net_amount=-1.0, kind="one_time")
     assert any("non-refund" in e for e in t2.validate())
 
 

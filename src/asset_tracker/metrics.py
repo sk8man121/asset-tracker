@@ -132,7 +132,12 @@ def compute_metrics(
     for r in conn.execute(proj_sql, proj_args).fetchall():
         hours = (r["minutes"] or 0) / 60.0
         net_v = round(r["net"] or 0, 2)
-        roi = round(net_v / hours, 2) if hours > 0 else None
+        # ROI is meaningful only when there's both revenue AND time invested.
+        # Zero-revenue projects show None (would be infinite or misleading otherwise).
+        if net_v > 0 and hours > 0:
+            roi = round(net_v / hours, 2)
+        else:
+            roi = None
         per_project.append({
             "id": r["id"], "name": r["name"], "category": r["category"],
             "status": r["status"], "started_at": r["started_at"],
