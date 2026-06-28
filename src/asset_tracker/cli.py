@@ -29,6 +29,7 @@ from . import metrics as metrics_mod
 from . import dashboard as dashboard_mod
 from . import backup as backup_mod
 from . import integrations
+from . import _compat
 
 
 # ---------- helpers ----------
@@ -306,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ops
     bk = sub.add_parser("backup", help="Snapshot the database")
-    bk.add_argument("--keep", type=int, default=int(__import__("os").environ.get("AT_BACKUP_KEEP", 7)))
+    bk.add_argument("--keep", type=int, default=_compat.int_default("AT_BACKUP_KEEP", 7))
     bk.set_defaults(func=cmd_backup)
 
     ex = sub.add_parser("export", help="Export all data to JSON")
