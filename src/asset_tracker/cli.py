@@ -30,6 +30,7 @@ from . import dashboard as dashboard_mod
 from . import backup as backup_mod
 from . import integrations
 from . import _compat
+from . import csv_export
 
 
 # ---------- helpers ----------
@@ -203,6 +204,38 @@ def cmd_export(args, conn):
     _ok(f"exported to {out_path}")
 
 
+def cmd_export_csv(args, conn):
+    """Sprint 11: CSV export of transactions or projects."""
+    if args.kind == "tx":
+        n = csv_export.export_transactions_csv(
+            conn, args.path,
+            project_id=args.project, since=_parse_date(args.since),
+            until=_parse_date(args.until), kind=args.tx_kind,
+        )
+        _ok(f"wrote {n} transactions to {args.path}")
+    elif args.kind == "projects":
+        n = csv_export.export_projects_csv(
+            conn, args.path,
+            status=args.status, category=args.category,
+        )
+        _ok(f"wrote {n} projects to {args.path}")
+    else:
+        _exit_err(f"unknown kind: {args.kind}")
+
+
+def cmd_summary(args, conn):
+    """One-line summary: total net, MRR, # projects, # txns."""
+    m = metrics_mod.compute_metrics(conn, period="all")
+    p_count = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+    a_count = conn.execute("SELECT COUNT(*) FROM projects WHERE status='active'").fetchone()[0]
+    t_count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    print(
+        f"projects={p_count} (active={a_count})  txns={t_count}  "
+        f"mrr=${m['mrr']:.2f}  arr=${m['arr']:.2f}  "
+        f"ytd=${m['ytd_net']:.2f}  total=${m['total_net']:.2f}"
+    )
+
+
 def cmd_seed(args, conn):
     seed_path = Path(args.path) if args.path else (Path(__file__).resolve().parents[2] / "seed" / "seed.json")
     if not seed_path.exists():
@@ -319,6 +352,20 @@ def build_parser() -> argparse.ArgumentParser:
     ex = sub.add_parser("export", help="Export all data to JSON")
     ex.add_argument("path", nargs="?")
     ex.set_defaults(func=cmd_export)
+
+    cs = sub.add_parser("export-csv", help="Export transactions or projects to CSV (Sprint 11)")
+    cs.add_argument("kind", choices=["tx", "projects"])
+    cs.add_argument("path")
+    cs.add_argument("--project")
+    cs.add_argument("--since")
+    cs.add_argument("--until")
+    cs.add_argument("--tx-kind", choices=sorted(models.VALID_TX_KINDS))
+    cs.add_argument("--status", choices=sorted(models.VALID_STATUSES))
+    cs.add_argument("--category", choices=sorted(models.VALID_CATEGORIES))
+    cs.set_defaults(func=cmd_export_csv)
+
+    sm = sub.add_parser("summary", help="One-line metrics summary")
+    sm.set_defaults(func=cmd_summary)
 
     sd = sub.add_parser("seed", help="Load seed data from JSON")
     sd.add_argument("path", nargs="?")
