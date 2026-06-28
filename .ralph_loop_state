@@ -73,7 +73,14 @@
     "12": {
       "phase": "Refinement",
       "title": "Loop Review, Final Build, & Handover Documentation",
-      "status": "pending"
+      "status": "completed",
+      "evidence": [
+        "README.md (final, all commands documented)",
+        "docs/handover.md",
+        ".ralph_loop_state (this file)",
+        "All 26 tests passing",
+        "Full end-to-end smoke against fresh DB"
+      ]
     }
   },
   "evidence_log": [],
