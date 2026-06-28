@@ -38,7 +38,12 @@
     "6": {
       "phase": "Ingestion",
       "title": "Mid-Loop Audit & State Serialization",
-      "status": "pending"
+      "status": "completed",
+      "evidence": [
+        "tests/test_basics.py — 10/10 passing",
+        "Discovered + fixed SQL cartesian-product bug in per-project ROI (was 3x over)",
+        "docs/state-after-sprint-6.md"
+      ]
     },
     "7": {
       "phase": "Display",

@@ -108,23 +108,25 @@ def compute_metrics(
         for r in conn.execute(sql, args).fetchall()
     ]
 
-    # Per-project: revenue + time + ROI (for the requested scope)
+    # Per-project: revenue + time + ROI (for the requested scope).
+    # NOTE: a naive LEFT JOIN with time_logs would multiply minutes by the number
+    # of transactions for that project (cartesian product). Use scalar subqueries
+    # to avoid that.
     proj_sql = (
         "SELECT p.id AS id, p.name AS name, p.category AS category, "
         "       p.status AS status, p.started_at AS started_at, "
-        "       COALESCE(SUM(t.net_amount), 0) AS net, "
-        "       COALESCE(SUM(tl.minutes), 0) AS minutes "
-        "FROM projects p "
-        "LEFT JOIN transactions t ON t.project_id = p.id "
-        "        AND t.occurred_at >= ? AND t.occurred_at <= ? "
-        "LEFT JOIN time_logs tl ON tl.project_id = p.id "
-        "WHERE 1=1 "
+        "       COALESCE((SELECT SUM(net_amount) FROM transactions t "
+        "                 WHERE t.project_id = p.id "
+        "                   AND t.occurred_at >= ? AND t.occurred_at <= ?), 0) AS net, "
+        "       COALESCE((SELECT SUM(minutes) FROM time_logs tl "
+        "                 WHERE tl.project_id = p.id), 0) AS minutes "
+        "FROM projects p WHERE 1=1 "
     )
     proj_args: list = [start_iso, end_iso]
     if project_id:
         proj_sql += " AND p.id = ?"
         proj_args.append(project_id)
-    proj_sql += " GROUP BY p.id ORDER BY net DESC"
+    proj_sql += " ORDER BY net DESC"
 
     per_project = []
     for r in conn.execute(proj_sql, proj_args).fetchall():
