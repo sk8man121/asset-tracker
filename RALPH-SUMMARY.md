@@ -4,8 +4,8 @@
 
 ## State (latest run)
 
-Run #: TBD
-Status: scaffolding
+Run #: 5
+Status: Sprints 1-5 complete; Sprints 6-12 still pending verification
 
 ## 12-sprint plan
 
