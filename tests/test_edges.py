@@ -346,9 +346,8 @@ def t16():
         from asset_tracker import dashboard as dashboard_mod
         out = dashboard_mod.render(conn)
         assert "asset-tracker" in out
-        assert "Top metrics" in out
-        assert "(no projects)" in out
-        assert "(no active channels)" in out
+        assert "Getting started" in out
+        assert "asset-tracker init" in out
     finally:
         conn.close(); td.cleanup()
 

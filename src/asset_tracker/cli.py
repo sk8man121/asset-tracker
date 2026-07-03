@@ -1,30 +1,23 @@
 """
 cli.py — argparse-based CLI for asset-tracker.
 
-Usage (after install: `pip install -e .`):
-    asset-tracker project add <id> --name <name> [--category software] [--status active] ...
-    asset-tracker project list [--status active] [--category music]
-    asset-tracker project show <id>
-    asset-tracker project update <id> [--name X] [--status dormant] ...
-    asset-tracker channel add --project <id> --name <n> --platform gumroad --kind recurring [--fee 10]
-    asset-tracker channel list [--project <id>]
-    asset-tracker tx log --project <id> --channel <id> --gross 100 --kind recurring [--external stripe_evt_X] [--date 2026-06-28]
-    asset-tracker tx list [--project X] [--since 2026-01-01] [--until 2026-12-31]
-    asset-tracker metrics [--project <id>] [--period 30d|90d|ytd|all]
-    asset-tracker dashboard
-    asset-tracker backup
-    asset-tracker export [path]
-    asset-tracker seed [path]
+Daily workflow:
+    asset-tracker init              # first-run setup
+    asset-tracker log 49.99         # quick income log (uses config defaults)
+    asset-tracker time log --minutes 90
+    asset-tracker summary           # morning check-in
+    asset-tracker dashboard         # full view
+    asset-tracker doctor            # health check
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import db, models, repository
+from . import config, db, models, onboard, repository
 from . import metrics as metrics_mod
 from . import dashboard as dashboard_mod
 from . import backup as backup_mod
@@ -53,7 +46,97 @@ def _parse_date(s: str | None) -> str | None:
     return datetime.fromisoformat(s).replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
 
 
+def _resolve_project(conn, explicit: str | None) -> str:
+    if explicit:
+        if not repository.get_project(conn, explicit):
+            _exit_err(f"project not found: {explicit}")
+        return explicit
+    default = config.get_default("default_project")
+    if default:
+        if not repository.get_project(conn, default):
+            _exit_err(f"default_project '{default}' not found — run `asset-tracker init` or update config")
+        return default
+    projects = repository.list_projects(conn)
+    if len(projects) == 1:
+        config.set_defaults(default_project=projects[0].id)
+        return projects[0].id
+    if not projects:
+        _exit_err("no projects yet — run `asset-tracker init`")
+    ids = ", ".join(p.id for p in projects[:5])
+    _exit_err(f"--project required (or set default_project in config). Projects: {ids}")
+
+
+def _resolve_channel_ref(conn, project_id: str, explicit: str | None) -> models.IncomeChannel:
+    ref = explicit or config.get_default("default_channel")
+    if not ref:
+        channels = repository.list_channels(conn, project_id=project_id)
+        if len(channels) == 1:
+            return channels[0]
+        if not channels:
+            _exit_err(
+                f"no channels for '{project_id}' — run: "
+                f"asset-tracker channel add --project {project_id} --name \"Sales\" --platform direct --kind one_time"
+            )
+        names = ", ".join(f"'{c.name}'" for c in channels)
+        _exit_err(f"--channel required. Available for '{project_id}': {names}")
+    try:
+        return repository.resolve_channel(conn, project_id, ref)
+    except LookupError as e:
+        _exit_err(str(e))
+
+
 # ---------- subcommand builders ----------
+
+def cmd_init(args, conn):
+    if args.seed:
+        msg = onboard.run_init(conn, interactive=False, from_seed=True, seed_path=Path(args.seed) if args.seed != "default" else None)
+    elif args.project_id:
+        msg = onboard.run_init(
+            conn, interactive=False,
+            project_id=args.project_id, project_name=args.project_name or args.project_id,
+            category=args.category,
+        )
+    else:
+        msg = onboard.run_init(conn, interactive=not args.yes)
+    _ok(msg)
+
+
+def cmd_doctor(args, conn):
+    print(onboard.run_doctor(conn))
+
+
+def cmd_log(args, conn):
+    """Quick daily income log — minimal flags when defaults are configured."""
+    project_id = _resolve_project(conn, args.project)
+    ch = _resolve_channel_ref(conn, project_id, args.channel)
+    if not config.get_default("default_project"):
+        config.set_defaults(default_project=project_id)
+    if args.channel and not config.get_default("default_channel"):
+        config.set_defaults(default_channel=args.channel)
+
+    occurred = _parse_date(args.date) or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    kind = args.kind or ch.kind
+    t = models.Transaction(
+        id=None,
+        project_id=project_id,
+        channel_id=ch.id,
+        occurred_at=occurred,
+        gross_amount=args.amount,
+        net_amount=args.amount,
+        currency=ch.currency,
+        kind=kind,
+        external_id=args.external,
+        notes=args.notes,
+    )
+    tx_id = repository.create_transaction(conn, t)
+    if tx_id == 0:
+        _ok(f"already logged (external_id={args.external})")
+    else:
+        _ok(
+            f"logged ${t.gross_amount:.2f} → net ${t.net_amount:.2f} "
+            f"on '{ch.name}' ({project_id})"
+        )
+
 
 def cmd_project_add(args, conn):
     p = models.Project(
@@ -133,21 +216,19 @@ def cmd_channel_list(args, conn):
 
 
 def cmd_tx_log(args, conn):
-    if not repository.get_project(conn, args.project):
-        _exit_err(f"project not found: {args.project}")
-    ch = repository.get_channel(conn, args.channel)
-    if not ch:
-        _exit_err(f"channel not found: {args.channel}")
-    if ch.project_id != args.project:
-        _exit_err(f"channel {args.channel} belongs to project '{ch.project_id}', not '{args.project}'")
-    occurred = args.date or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    project_id = _resolve_project(conn, args.project)
+    try:
+        ch = repository.resolve_channel(conn, project_id, args.channel)
+    except LookupError as e:
+        _exit_err(str(e))
+    occurred = _parse_date(args.date) or datetime.now(timezone.utc).isoformat(timespec="seconds")
     t = models.Transaction(
         id=None,
-        project_id=args.project,
-        channel_id=args.channel,
+        project_id=project_id,
+        channel_id=ch.id,
         occurred_at=occurred,
         gross_amount=args.gross,
-        net_amount=args.gross,  # auto-compute on insert if channel has fee rules
+        net_amount=args.gross,
         currency=ch.currency,
         kind=args.kind,
         external_id=args.external,
@@ -182,13 +263,48 @@ def cmd_tx_list(args, conn):
     print(f"  ----  total: net={total_net:.2f}  fees={total_fee:.2f}")
 
 
+def cmd_time_log(args, conn):
+    project_id = _resolve_project(conn, args.project)
+    now = datetime.now(timezone.utc)
+    if args.date:
+        started = datetime.fromisoformat(_parse_date(args.date))
+    else:
+        started = now
+    ended = started + timedelta(minutes=args.minutes)
+    tl = models.TimeLog(
+        id=None,
+        project_id=project_id,
+        started_at=started.isoformat(timespec="seconds"),
+        ended_at=ended.isoformat(timespec="seconds"),
+        minutes=args.minutes,
+        notes=args.notes,
+    )
+    tid = repository.create_time_log(conn, tl)
+    hours = args.minutes / 60.0
+    _ok(f"time #{tid} logged: {hours:.1f}h on '{project_id}'")
+
+
+def cmd_time_list(args, conn):
+    logs = repository.list_time_logs(conn, project_id=args.project)
+    if not logs:
+        _ok("no time logs")
+        return
+    total = 0
+    for tl in logs[:args.limit]:
+        hours = tl.minutes / 60.0
+        total += tl.minutes
+        note = f"  {tl.notes}" if tl.notes else ""
+        print(f"  #{tl.id:>4}  {tl.started_at[:10]}  {tl.project_id:30}  {hours:>6.1f}h{note}")
+    print(f"  ----  total: {total / 60.0:.1f}h ({len(logs)} entries)")
+
+
 def cmd_metrics(args, conn):
     result = metrics_mod.compute_metrics(conn, project_id=args.project, period=args.period)
     print(json.dumps(result, indent=2, default=str))
 
 
 def cmd_dashboard(args, conn):
-    out = dashboard_mod.render(conn)
+    out = dashboard_mod.render(conn, period=args.period)
     print(out)
 
 
@@ -205,7 +321,6 @@ def cmd_export(args, conn):
 
 
 def cmd_export_csv(args, conn):
-    """Sprint 11: CSV export of transactions or projects."""
     if args.kind == "tx":
         n = csv_export.export_transactions_csv(
             conn, args.path,
@@ -224,16 +339,22 @@ def cmd_export_csv(args, conn):
 
 
 def cmd_summary(args, conn):
-    """One-line summary: total net, MRR, # projects, # txns."""
     m = metrics_mod.compute_metrics(conn, period="all")
     p_count = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
     a_count = conn.execute("SELECT COUNT(*) FROM projects WHERE status='active'").fetchone()[0]
     t_count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    last_tx = conn.execute(
+        "SELECT occurred_at FROM transactions ORDER BY occurred_at DESC LIMIT 1"
+    ).fetchone()
+    last_str = last_tx["occurred_at"][:10] if last_tx else "never"
     print(
         f"projects={p_count} (active={a_count})  txns={t_count}  "
         f"mrr=${m['mrr']:.2f}  arr=${m['arr']:.2f}  "
-        f"ytd=${m['ytd_net']:.2f}  total=${m['total_net']:.2f}"
+        f"ytd=${m['ytd_net']:.2f}  total=${m['total_net']:.2f}  "
+        f"last_txn={last_str}"
     )
+    if not onboard.is_initialized(conn):
+        print("→ run `asset-tracker init` to get started", file=sys.stderr)
 
 
 def cmd_seed(args, conn):
@@ -241,13 +362,15 @@ def cmd_seed(args, conn):
     if not seed_path.exists():
         _exit_err(f"seed file not found: {seed_path}")
     count = backup_mod.load_seed(conn, seed_path)
+    first = conn.execute("SELECT id FROM projects ORDER BY created_at LIMIT 1").fetchone()
+    if first:
+        config.set_defaults(default_project=first["id"])
     _ok(f"seeded {count} entities from {seed_path}")
 
 
 def cmd_integrations(args, conn):
-    """Sprint 9 stub: list registered integration connectors and their status."""
     connectors = integrations.list_connectors()
-    print("Available integration connectors (no live calls in this loop):")
+    print("Integration connectors:")
     for c in connectors:
         status = c.get("configured", False)
         marker = "● configured" if status else "○ stub"
@@ -255,16 +378,55 @@ def cmd_integrations(args, conn):
 
 
 def cmd_import_mock(args, conn):
-    """Import synthetic NormalizedTxn records from a named connector."""
     ins, skp = integrations.import_mock(conn, args.platform, count=args.count)
     print(f"imported from {args.platform}: inserted={ins} skipped={skp}")
+
+
+def cmd_config_show(args, conn):
+    cfg = config.load_config()
+    cfg["_path"] = str(config.config_path())
+    cfg["_db"] = str(db.default_db_path())
+    print(json.dumps(cfg, indent=2))
+
+
+def cmd_config_set(args, conn):
+    if args.default_project is None and args.default_channel is None:
+        _exit_err("specify --default-project and/or --default-channel")
+    config.set_defaults(default_project=args.default_project, default_channel=args.default_channel)
+    _ok(f"config saved to {config.config_path()}")
 
 
 # ---------- arg parser ----------
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="asset-tracker", description="Personal side-project + income registry")
+    p = argparse.ArgumentParser(
+        prog="asset-tracker",
+        description="Personal side-project + income registry",
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    # init / doctor — daily essentials
+    ini = sub.add_parser("init", help="First-run setup wizard")
+    ini.add_argument("--seed", nargs="?", const="default", help="Load demo seed data instead of wizard")
+    ini.add_argument("--yes", action="store_true", help="Non-interactive wizard (requires --project-id)")
+    ini.add_argument("--project-id")
+    ini.add_argument("--project-name")
+    ini.add_argument("--category", default="software", choices=sorted(models.VALID_CATEGORIES))
+    ini.set_defaults(func=cmd_init)
+
+    doc = sub.add_parser("doctor", help="Health check and setup guidance")
+    doc.set_defaults(func=cmd_doctor)
+
+    # quick log — the daily workhorse
+    lg = sub.add_parser("log", help="Quick income log (uses config defaults)")
+    lg.add_argument("amount", type=float, help="Gross amount in channel currency")
+    lg.add_argument("--project", help="Project id (default: config default_project)")
+    lg.add_argument("--channel", help="Channel name, platform, or id (default: config default_channel)")
+    lg.add_argument("--kind", choices=sorted(models.VALID_TX_KINDS), help="Override transaction kind")
+    lg.add_argument("--date", help="YYYY-MM-DD or ISO timestamp")
+    lg.add_argument("--external", help="External id for idempotent import")
+    lg.add_argument("--notes")
+    lg.set_defaults(func=cmd_log)
 
     # project
     pp = sub.add_parser("project", help="Manage projects")
@@ -317,9 +479,9 @@ def build_parser() -> argparse.ArgumentParser:
     # transaction
     tx = sub.add_parser("tx", help="Manage transactions")
     txsub = tx.add_subparsers(dest="subcmd", required=True)
-    txl = txsub.add_parser("log", help="Log a transaction")
+    txl = txsub.add_parser("log", help="Log a transaction (explicit flags)")
     txl.add_argument("--project", required=True)
-    txl.add_argument("--channel", required=True, type=int)
+    txl.add_argument("--channel", required=True, help="Channel id, name, or platform")
     txl.add_argument("--gross", required=True, type=float)
     txl.add_argument("--kind", required=True, choices=sorted(models.VALID_TX_KINDS))
     txl.add_argument("--date")
@@ -335,6 +497,21 @@ def build_parser() -> argparse.ArgumentParser:
     txls.add_argument("--limit", type=int, default=100)
     txls.set_defaults(func=cmd_tx_list)
 
+    # time tracking
+    tm = sub.add_parser("time", help="Track time spent on projects")
+    tmsub = tm.add_subparsers(dest="subcmd", required=True)
+    tml = tmsub.add_parser("log", help="Log time on a project")
+    tml.add_argument("--minutes", required=True, type=int, help="Minutes spent")
+    tml.add_argument("--project", help="Project id (default: config default_project)")
+    tml.add_argument("--date", help="YYYY-MM-DD (defaults to today)")
+    tml.add_argument("--notes")
+    tml.set_defaults(func=cmd_time_log)
+
+    tmls = tmsub.add_parser("list", help="List time logs")
+    tmls.add_argument("--project")
+    tmls.add_argument("--limit", type=int, default=50)
+    tmls.set_defaults(func=cmd_time_list)
+
     # metrics / dashboard
     me = sub.add_parser("metrics", help="Compute metrics")
     me.add_argument("--project")
@@ -342,6 +519,7 @@ def build_parser() -> argparse.ArgumentParser:
     me.set_defaults(func=cmd_metrics)
 
     dash = sub.add_parser("dashboard", help="Render TUI dashboard")
+    dash.add_argument("--period", default="30d", choices=["30d", "90d", "ytd", "all"])
     dash.set_defaults(func=cmd_dashboard)
 
     # ops
@@ -353,7 +531,7 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("path", nargs="?")
     ex.set_defaults(func=cmd_export)
 
-    cs = sub.add_parser("export-csv", help="Export transactions or projects to CSV (Sprint 11)")
+    cs = sub.add_parser("export-csv", help="Export transactions or projects to CSV")
     cs.add_argument("kind", choices=["tx", "projects"])
     cs.add_argument("path")
     cs.add_argument("--project")
@@ -371,13 +549,23 @@ def build_parser() -> argparse.ArgumentParser:
     sd.add_argument("path", nargs="?")
     sd.set_defaults(func=cmd_seed)
 
-    ig = sub.add_parser("integrations", help="List integration connector stubs")
+    ig = sub.add_parser("integrations", help="List integration connectors")
     ig.set_defaults(func=cmd_integrations)
 
-    im = sub.add_parser("import-mock", help="Import synthetic txns from a connector (Sprint 9)")
+    im = sub.add_parser("import-mock", help="Import synthetic txns from a connector")
     im.add_argument("platform", choices=[c["name"] for c in integrations.list_connectors()])
     im.add_argument("--count", type=int, default=5)
     im.set_defaults(func=cmd_import_mock)
+
+    # config
+    cf = sub.add_parser("config", help="View or set local defaults")
+    cfsub = cf.add_subparsers(dest="subcmd", required=True)
+    cfs = cfsub.add_parser("show", help="Show current config")
+    cfs.set_defaults(func=cmd_config_show)
+    cfset = cfsub.add_parser("set", help="Set default project/channel")
+    cfset.add_argument("--default-project")
+    cfset.add_argument("--default-channel")
+    cfset.set_defaults(func=cmd_config_set)
 
     return p
 
@@ -385,6 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------- main ----------
 
 def main(argv: list[str] | None = None) -> int:
+    config.load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)
     conn = db.connect()

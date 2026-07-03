@@ -203,12 +203,26 @@ def _tti_panel(m: dict, width: int) -> list[str]:
 def render(conn: sqlite3.Connection, period: str = "30d") -> str:
     """Build the full dashboard as a single string. Width adapts to terminal."""
     from . import metrics as metrics_mod
+    from . import onboard
     m = metrics_mod.compute_metrics(conn, period=period)
     width = min(max(_term_width(), 80), 140)
     sections: list[str] = []
     title = bold(cyan("  asset-tracker ")) + dim(f"· {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     sections.append(title)
     sections.append("")
+
+    if not onboard.is_initialized(conn):
+        sections.extend(_box("Getting started", [
+            "  Your registry is empty. Run one of:",
+            "",
+            "    asset-tracker init              # guided setup",
+            "    asset-tracker init --seed       # demo data to explore",
+            "",
+            "  Then log income:",
+            "    asset-tracker log 49.99",
+        ], width))
+        return "\n".join(sections)
+
     sections.extend(_box("Top metrics", _top_metrics(m, width), width))
     sections.append("")
     sections.extend(_box("By platform", _platform_table(m, width), width))
