@@ -1,0 +1,23 @@
+[
+  {
+    "id": "ch_test_001",
+    "amount": 5000,
+    "amount_refunded": 0,
+    "application_fee_amount": 175,
+    "currency": "usd",
+    "created": 1717000000,
+    "description": "Test charge",
+    "metadata": {"project_id": "my-saas", "channel_name": "Stripe checkout"},
+    "invoice": null
+  },
+  {
+    "id": "ch_test_002",
+    "amount": 2900,
+    "amount_refunded": 0,
+    "currency": "usd",
+    "created": 1717086400,
+    "description": "Second charge",
+    "metadata": {"project_id": "my-saas"},
+    "invoice": "in_123"
+  }
+]

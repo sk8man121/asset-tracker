@@ -1,9 +1,11 @@
 __pycache__/
 *.pyc
+*.egg-info/
 data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+data/.asset-tracker.json
 data/backups/
 data/export.json
 .venv/

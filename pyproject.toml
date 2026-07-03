@@ -1,6 +1,6 @@
 [project]
 name = "asset-tracker"
-version = "0.1.0"
+version = "0.2.1"
 description = "Personal side-project + income registry"
 requires-python = ">=3.9"
 dependencies = []
@@ -13,4 +13,5 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["asset_tracker*"]

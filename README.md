@@ -1,119 +1,168 @@
 # asset-tracker
 
-**Personal side-project + income registry.** A local-first, stdlib-only Python tool that catalogs every project (software, music, creative, content, physical, service), tracks every income channel, and computes MRR, ROI, YTD revenue, per-platform fee burn, and time-to-income for each.
+**Personal side-project + income registry.** A local-first, stdlib-only Python CLI that catalogs every project you work on, tracks income channels, logs transactions and time, and shows MRR, ROI, and per-platform breakdowns in a terminal dashboard.
 
-## What it does
+Built for daily use — not a demo, not a scaffold.
 
-- **Project registry** — `software / music / creative / content / physical / service`, status (`active / dormant / archived / idea`), tech stack, repo location, time-to-first-income.
-- **Income channels** — `recurring / one_time / royalty / tip`, per-channel fee rules (`fee_pct + fee_flat`), per-platform grouping.
-- **Transactions** — gross / fee / net, idempotent on `(channel_id, external_id)`, refunds supported.
-- **Time logs** — minutes spent per project → revenue-per-hour ROI.
-- **Metrics engine** — MRR (last-30d recurring), ARR, YTD, total, period fees, per-platform breakdown, per-project ROI, time-to-income, daily trend.
-- **TUI dashboard** — 6 panels: top metrics, by platform, by project, active channels, recent tx, time-to-income. ANSI color, terminal-width-adaptive.
-- **Backups** — `sqlite3.Connection.backup()` (crash-safe), rotation to keep N most recent.
-- **Export** — JSON (full DB) and CSV (filtered txns / projects).
-- **Integration framework** — connectors for Stripe, Gumroad, Bandcamp, GitHub Sponsors, Etsy. Live fetch is gated behind `AT_LIVE_INTEGRATIONS=1` (default off). Synthetic imports via `import-mock`.
-
-## Quickstart
+## Install
 
 ```bash
-# Install (editable, optional — or just PYTHONPATH=src)
-cd /Users/openclaw/hermes-data/projects/asset-tracker
-PYTHONPATH=src python3 -m asset_tracker.cli --help
+git clone https://github.com/sk8man121/asset-tracker.git
+cd asset-tracker
+pip install -e .
+```
 
-# Seed the DB with realistic sample data (5 projects, 7 txns, 4 time logs)
-PYTHONPATH=src python3 -m asset_tracker.cli seed
+Or without install:
 
-# View the dashboard
-PYTHONPATH=src python3 -m asset_tracker.cli dashboard
+```bash
+export PYTHONPATH=src
+python3 -m asset_tracker.cli --help
+```
 
-# One-line summary
-PYTHONPATH=src python3 -m asset_tracker.cli summary
+Optional: copy `.env.example` to `.env` and set `AT_DB_PATH` if you want the database somewhere other than `./data/asset-tracker.db`.
 
-# Add your own project
-PYTHONPATH=src python3 -m asset_tracker.cli project add my-app \
-    --name "My App" --category software --tech-stack "python,fastapi"
+## First run
 
-# Add an income channel (Gumroad, 10% fee)
-PYTHONPATH=src python3 -m asset_tracker.cli channel add \
-    --project my-app --name "Gumroad MRR" \
-    --platform gumroad --kind recurring --fee 10
+```bash
+asset-tracker init
+```
 
-# Log a transaction (fee auto-computed from channel rules)
-PYTHONPATH=src python3 -m asset_tracker.cli tx log \
-    --project my-app --channel 1 --gross 100 --kind recurring
+The wizard creates your first project and income channel, saves defaults to `data/.asset-tracker.json`, and tells you what to do next.
+
+To explore with demo data first:
+
+```bash
+asset-tracker init --seed
+asset-tracker dashboard
+```
+
+## Daily workflow
+
+This is the routine the tool is designed around:
+
+```bash
+# Morning check-in (10 seconds)
+asset-tracker summary
+asset-tracker dashboard
+
+# Log income as it happens
+asset-tracker log 49.99
+asset-tracker log 29.00 --notes "book sale"
+
+# Log time for ROI tracking
+asset-tracker time log --minutes 90 --notes "feature work"
+
+# Weekly safety net
+asset-tracker backup
+asset-tracker recent          # last 7 days at a glance
+```
+
+With defaults configured (via `init` or `config set`), `log` needs only the amount. Channel names work instead of numeric IDs:
+
+```bash
+asset-tracker log 100 --channel gumroad
+```
+
+### Stripe import (optional)
+
+```bash
+# In .env: AT_STRIPE_API_KEY=sk_live_... and AT_LIVE_INTEGRATIONS=1
+asset-tracker import stripe --since 30d
 ```
 
 ## Commands
 
+### Essentials
+
+| Command | What it does |
+|---|---|
+| `init` | First-run wizard (or `--seed` for demo data) |
+| `log <amount>` | Quick income log using config defaults |
+| `summary` | One-line morning check-in |
+| `dashboard` | Full 6-panel TUI view |
+| `recent` | Last N days of transactions + time |
+| `doctor` | Health check + setup guidance |
+| `backup` | Crash-safe SQLite snapshot |
+
+### Projects & channels
+
 ```
-asset-tracker project add <id> --name <name> [--category ...] [--status ...]
-asset-tracker project list [--status active] [--category software]
+asset-tracker project add <id> --name <name> --category software
+asset-tracker project list [--status active]
 asset-tracker project show <id>
-asset-tracker project update <id> [--name X] [--status dormant] ...
-asset-tracker channel add --project <id> --name <n> --platform gumroad --kind recurring [--fee 10]
+asset-tracker channel add --project <id> --name "Gumroad" --platform gumroad --kind recurring --fee 10
 asset-tracker channel list [--project <id>]
-asset-tracker tx log --project <id> --channel <id> --gross 100 --kind recurring [--external stripe_evt_X]
-asset-tracker tx list [--project X] [--since 2026-01-01] [--until 2026-12-31] [--kind recurring]
-asset-tracker metrics [--project X] [--period 30d|90d|ytd|all]
-asset-tracker dashboard
-asset-tracker summary                                # one-line: counts + MRR/ARR/YTD/total
-asset-tracker backup [--keep 7]
-asset-tracker export [path.json]
-asset-tracker export-csv tx <path.csv> [--project X] [--since ...] [--until ...]
-asset-tracker export-csv projects <path.csv> [--status active]
-asset-tracker integrations                           # list connector stubs
-asset-tracker import-mock <platform> [--count 5]    # synthetic import (Stripe / Gumroad / etc)
-asset-tracker seed [path.json]                       # idempotent load
 ```
 
-## Data model
+### Transactions & time
 
-See `docs/data-model.md`. Four tables:
+```
+asset-tracker tx log --project <id> --channel gumroad --gross 100 --kind recurring
+asset-tracker tx list [--project X] [--since 2026-01-01]
+asset-tracker time log --minutes 90 [--project X] [--notes "..."]
+asset-tracker time list [--project X]
+```
 
-- `projects` — registry of every venture
-- `income_channels` — recurring/one-time income sources per project
-- `transactions` — money-in events (idempotent on `(channel_id, external_id)`)
-- `time_logs` — minutes invested per project (feeds ROI)
+`--channel` accepts a numeric id, channel name, or platform name (when unambiguous).
 
-Schema is in `schema/schema.sql`. Versioning in `schema_meta` table.
+### Metrics & export
+
+```
+asset-tracker metrics [--period 30d|90d|ytd|all]
+asset-tracker export [path]                    # full JSON dump
+asset-tracker export-csv tx out.csv            # CSV export
+asset-tracker config show                      # view defaults
+asset-tracker config set --default-project my-app --default-channel gumroad
+```
+
+## What it tracks
+
+- **Projects** — software, music, creative, content, physical, service
+- **Income channels** — per-platform fee rules (Gumroad, Stripe, Bandcamp, GitHub Sponsors, Etsy, direct)
+- **Transactions** — gross / fee / net, idempotent on `(channel_id, external_id)`, refunds supported
+- **Time logs** — minutes per project → revenue-per-hour ROI
+- **Metrics** — MRR (last 30d recurring), ARR, YTD, per-platform breakdown, time-to-first-income
 
 ## Storage
 
-- **DB:** SQLite, single file at `./data/asset-tracker.db` (override via `AT_DB_PATH`).
-- **Backups:** `./data/backups/asset-tracker-<timestamp>.db` (rotation to keep N).
-- **Exports:** JSON + CSV.
-- **Stdlib-only:** no external deps.
+| Path | Purpose |
+|---|---|
+| `data/asset-tracker.db` | SQLite database (gitignored) |
+| `data/.asset-tracker.json` | Your default project/channel (gitignored) |
+| `data/backups/` | Rotating snapshots (keep 7 by default) |
 
 ## Tests
 
 ```bash
 PYTHONPATH=src python3 tests/test_basics.py    # 10 tests
-PYTHONPATH=src python3 tests/test_edges.py     # 16 tests (validation, concurrency, extremes)
+PYTHONPATH=src python3 tests/test_edges.py     # 16 tests
+PYTHONPATH=src python3 tests/test_daily.py     #  9 tests — daily workflow
+PYTHONPATH=src python3 tests/test_integrations.py  #  3 tests — Stripe import
 ```
 
-**26/26 tests passing.** Run on any commit before declaring "done."
+CI runs all 38 on push.
 
 ## Integration connectors
 
-Each connector normalizes platform-specific shapes into `NormalizedTxn`:
+Five platform connectors ship with normalized import plumbing. Live API fetch is gated behind `AT_LIVE_INTEGRATIONS=1` — stubs by design until you wire your own keys.
 
-```python
-from asset_tracker.integrations import REGISTRY, import_mock
-
-# Synthetic import (no live API):
-inserted, skipped = import_mock(conn, "stripe", count=5)
-
-# When ready for live data, set AT_STRIPE_API_KEY and call fetch_recent():
-# Set AT_LIVE_INTEGRATIONS=1 to opt in (default: stubs only).
+```bash
+asset-tracker integrations
+asset-tracker import-mock stripe --count 10   # synthetic test data
 ```
 
-Connectors: Stripe (subscriptions + charges), Gumroad (memberships + sales), Bandcamp (sales + tips), GitHub Sponsors, Etsy.
+## Architecture
 
-## Sprint ledger
+```
+CLI → repository → SQLite
+         ↓
+    metrics / dashboard / export
+         ↓
+    integrations (NormalizedTxn → idempotent import)
+```
 
-This project was built via a 12-sprint RALPH loop (each ~30 min). Per-sprint evidence in `.ralph_loop_state`.
+Zero external dependencies. Python ≥ 3.9. ~3,200 lines.
 
 ## License
 
-Personal use. Adapt freely.
+MIT — personal tool, use freely.

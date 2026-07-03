@@ -127,6 +127,60 @@ def get_channel(conn: sqlite3.Connection, channel_id: int) -> Optional[models.In
     return models.IncomeChannel.from_row(row) if row else None
 
 
+def resolve_channel(
+    conn: sqlite3.Connection,
+    project_id: str,
+    ref: str | int,
+) -> models.IncomeChannel:
+    """Resolve a channel by numeric id, exact name, partial name, or platform.
+
+    Raises LookupError with a helpful message when ambiguous or missing.
+    """
+    ref_str = str(ref).strip()
+    if ref_str.isdigit():
+        ch = get_channel(conn, int(ref_str))
+        if ch is None:
+            raise LookupError(f"channel #{ref_str} not found")
+        if ch.project_id != project_id:
+            raise LookupError(
+                f"channel #{ref_str} belongs to project '{ch.project_id}', not '{project_id}'"
+            )
+        return ch
+
+    channels = list_channels(conn, project_id=project_id)
+    if not channels:
+        raise LookupError(
+            f"no channels for project '{project_id}' — run: "
+            f"asset-tracker channel add --project {project_id} ..."
+        )
+
+    needle = ref_str.lower()
+    exact_name = [c for c in channels if c.name.lower() == needle]
+    if len(exact_name) == 1:
+        return exact_name[0]
+
+    partial_name = [c for c in channels if needle in c.name.lower()]
+    if len(partial_name) == 1:
+        return partial_name[0]
+
+    by_platform = [c for c in channels if c.platform.lower() == needle]
+    if len(by_platform) == 1:
+        return by_platform[0]
+
+    if len(partial_name) > 1:
+        names = ", ".join(f"'{c.name}'" for c in partial_name)
+        raise LookupError(f"channel '{ref_str}' is ambiguous — matches: {names}")
+    if len(by_platform) > 1:
+        names = ", ".join(f"'{c.name}' (#{c.id})" for c in by_platform)
+        raise LookupError(f"platform '{ref_str}' is ambiguous — channels: {names}")
+
+    available = ", ".join(f"'{c.name}' (#{c.id})" for c in channels)
+    raise LookupError(
+        f"channel '{ref_str}' not found for project '{project_id}'. "
+        f"Available: {available}"
+    )
+
+
 # ---------- transactions ----------
 
 def create_transaction(conn: sqlite3.Connection, t: models.Transaction) -> int:
