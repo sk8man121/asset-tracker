@@ -22,6 +22,7 @@ jobs:
           PYTHONPATH=src python3 tests/test_basics.py
           PYTHONPATH=src python3 tests/test_edges.py
           PYTHONPATH=src python3 tests/test_daily.py
+          PYTHONPATH=src python3 tests/test_integrations.py
       - name: Verify CLI entrypoint
         run: |
           pip install -e .

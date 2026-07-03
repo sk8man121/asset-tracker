@@ -29,6 +29,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional
 
+from . import http as http_mod
+
 
 @dataclass
 class NormalizedTxn:
@@ -57,16 +59,21 @@ class Connector:
     env_var: str = ""          # e.g. "AT_STRIPE_API_KEY"
 
     def __init__(self) -> None:
-        self.env_value = os.environ.get(self.env_var, "")
+        pass
+
+    def _env_value(self) -> str:
+        return os.environ.get(self.env_var, "")
 
     def is_configured(self) -> bool:
-        return bool(self.env_value)
+        return bool(self._env_value())
 
     def verify(self) -> tuple[bool, str]:
-        """Return (ok, message). Default: configured==True means ok. Override to ping."""
+        """Return (ok, message). Override to ping remote API when configured."""
         if not self.is_configured():
             return (False, f"{self.env_var} not set")
-        return (True, f"{self.env_var} present (length={len(self.env_value)})")
+        if os.environ.get("AT_LIVE_INTEGRATIONS") and hasattr(self, "_verify_live"):
+            return self._verify_live()  # type: ignore[attr-defined]
+        return (True, f"{self.env_var} present (length={len(self._env_value())})")
 
     def fetch_recent(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
         """Override in subclasses. Default: raise unless LIVE_INTEGRATIONS enabled."""
@@ -92,10 +99,44 @@ class StripeConnector(Connector):
     platform_name = "Stripe"
     env_var = "AT_STRIPE_API_KEY"
 
+    def _verify_live(self) -> tuple[bool, str]:
+        try:
+            data = http_mod.get_json(
+                "https://api.stripe.com/v1/balance",
+                headers={"Authorization": f"Bearer {self._env_value()}"},
+            )
+            avail = data.get("available", [{}])[0]
+            return (True, f"Stripe OK — {avail.get('currency', '?').upper()} available")
+        except http_mod.HttpError as e:
+            return (False, str(e))
+
+    def _iso_to_unix(self, iso: str) -> int:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+
     def _fetch_recent_impl(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
-        # Real impl: stripe.Charge.list(created={"gte": since, "lte": until}, limit=100)
-        # then stripe.Subscription.list(...) for recurring revenue.
-        raise NotImplementedError("Stripe live fetcher not implemented in this loop")
+        since_unix = self._iso_to_unix(since_iso)
+        until_unix = self._iso_to_unix(until_iso)
+        charges: list[dict] = []
+        params: dict = {
+            "limit": 100,
+            "created[gte]": since_unix,
+            "created[lte]": until_unix,
+        }
+        while True:
+            data = http_mod.get_json(
+                "https://api.stripe.com/v1/charges",
+                headers={"Authorization": f"Bearer {self._env_value()}"},
+                params=params,
+            )
+            batch = data.get("data", [])
+            charges.extend(batch)
+            if not data.get("has_more") or not batch:
+                break
+            params["starting_after"] = batch[-1]["id"]
+        return [self.normalize(ch) for ch in charges]
 
     def normalize(self, raw: dict) -> NormalizedTxn:
         # Real Stripe charge shape:
@@ -238,6 +279,13 @@ REGISTRY: list[Connector] = [
 ]
 
 
+def get_connector(platform_id: str) -> Connector:
+    conn_obj = next((c for c in REGISTRY if c.platform_id == platform_id), None)
+    if not conn_obj:
+        raise ValueError(f"unknown platform: {platform_id}")
+    return conn_obj
+
+
 def list_connectors() -> list[dict]:
     """Sprint 9 public API: list connectors + their configured status."""
     out = []
@@ -258,6 +306,7 @@ def import_normalized(
     conn: sqlite3.Connection,
     txns: list[NormalizedTxn],
     project_resolver: Optional[dict[str, str]] = None,
+    platform_id: str = "other",
 ) -> tuple[int, int]:
     """Write a list of NormalizedTxn into the local DB.
 
@@ -294,7 +343,8 @@ def import_normalized(
         if not ch:
             ch_id = repository.create_channel(conn, models.IncomeChannel(
                 id=None, project_id=project_id, name=nt.channel_name,
-                platform=REGISTRY[0].platform_id, kind=nt.kind,
+                platform=platform_id if platform_id in models.VALID_PLATFORMS else "other",
+                kind=nt.kind,
                 currency=nt.currency,
             ))
         else:
@@ -315,6 +365,21 @@ def import_normalized(
     return (inserted, skipped)
 
 
+def import_live(
+    conn: sqlite3.Connection,
+    platform: str,
+    since_iso: str,
+    until_iso: str,
+    project_resolver: Optional[dict[str, str]] = None,
+) -> tuple[int, int]:
+    """Fetch from a live connector and import into the local DB."""
+    connector = get_connector(platform)
+    if not connector.is_configured():
+        raise ValueError(f"{connector.env_var} not set — add it to .env")
+    txns = connector.fetch_recent(since_iso, until_iso)
+    return import_normalized(conn, txns, project_resolver, platform_id=connector.platform_id)
+
+
 def import_mock(conn: sqlite3.Connection, platform: str, count: int = 5) -> tuple[int, int]:
     """Generate `count` synthetic NormalizedTxn from the named connector's normalize() shape.
 
@@ -333,7 +398,7 @@ def import_mock(conn: sqlite3.Connection, platform: str, count: int = 5) -> tupl
         except (KeyError, ValueError, TypeError) as e:
             # Skip malformed samples rather than crash the whole import
             continue
-    return import_normalized(conn, txns)
+    return import_normalized(conn, txns, platform_id=platform)
 
 
 def _synthetic_raw(platform: str, idx: int, now: datetime) -> dict:

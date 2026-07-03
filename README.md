@@ -54,12 +54,20 @@ asset-tracker time log --minutes 90 --notes "feature work"
 
 # Weekly safety net
 asset-tracker backup
+asset-tracker recent          # last 7 days at a glance
 ```
 
 With defaults configured (via `init` or `config set`), `log` needs only the amount. Channel names work instead of numeric IDs:
 
 ```bash
 asset-tracker log 100 --channel gumroad
+```
+
+### Stripe import (optional)
+
+```bash
+# In .env: AT_STRIPE_API_KEY=sk_live_... and AT_LIVE_INTEGRATIONS=1
+asset-tracker import stripe --since 30d
 ```
 
 ## Commands
@@ -72,6 +80,7 @@ asset-tracker log 100 --channel gumroad
 | `log <amount>` | Quick income log using config defaults |
 | `summary` | One-line morning check-in |
 | `dashboard` | Full 6-panel TUI view |
+| `recent` | Last N days of transactions + time |
 | `doctor` | Health check + setup guidance |
 | `backup` | Crash-safe SQLite snapshot |
 
@@ -128,9 +137,10 @@ asset-tracker config set --default-project my-app --default-channel gumroad
 PYTHONPATH=src python3 tests/test_basics.py    # 10 tests
 PYTHONPATH=src python3 tests/test_edges.py     # 16 tests
 PYTHONPATH=src python3 tests/test_daily.py     #  9 tests — daily workflow
+PYTHONPATH=src python3 tests/test_integrations.py  #  3 tests — Stripe import
 ```
 
-CI runs all 35 on push.
+CI runs all 38 on push.
 
 ## Integration connectors
 

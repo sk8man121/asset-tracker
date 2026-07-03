@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from . import __version__
 
 from . import config, db, models, onboard, repository
 from . import metrics as metrics_mod
@@ -44,6 +47,18 @@ def _parse_date(s: str | None) -> str | None:
     if "T" in s:
         return s
     return datetime.fromisoformat(s).replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
+
+
+def _window_from_since(since: str, until: str | None = None) -> tuple[str, str]:
+    """Resolve --since (30d|90d|ytd|all|YYYY-MM-DD) to ISO window."""
+    if since in ("30d", "90d", "ytd", "all"):
+        start, end = metrics_mod._period_window(since)
+        start_iso = start.isoformat(timespec="seconds")
+        end_iso = end.isoformat(timespec="seconds")
+    else:
+        start_iso = _parse_date(since) or since
+        end_iso = _parse_date(until) if until else datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return start_iso, end_iso
 
 
 def _resolve_project(conn, explicit: str | None) -> str:
@@ -217,11 +232,9 @@ def cmd_channel_list(args, conn):
 
 def cmd_tx_log(args, conn):
     project_id = _resolve_project(conn, args.project)
-    try:
-        ch = repository.resolve_channel(conn, project_id, args.channel)
-    except LookupError as e:
-        _exit_err(str(e))
+    ch = _resolve_channel_ref(conn, project_id, args.channel)
     occurred = _parse_date(args.date) or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    kind = args.kind or ch.kind
     t = models.Transaction(
         id=None,
         project_id=project_id,
@@ -230,7 +243,7 @@ def cmd_tx_log(args, conn):
         gross_amount=args.gross,
         net_amount=args.gross,
         currency=ch.currency,
-        kind=args.kind,
+        kind=kind,
         external_id=args.external,
         notes=args.notes,
     )
@@ -296,6 +309,38 @@ def cmd_time_list(args, conn):
         note = f"  {tl.notes}" if tl.notes else ""
         print(f"  #{tl.id:>4}  {tl.started_at[:10]}  {tl.project_id:30}  {hours:>6.1f}h{note}")
     print(f"  ----  total: {total / 60.0:.1f}h ({len(logs)} entries)")
+
+
+def cmd_recent(args, conn):
+    """Show activity for the last N days — quick weekly review."""
+    since = (datetime.now(timezone.utc) - timedelta(days=args.days)).isoformat(timespec="seconds")
+    txs = repository.list_transactions(conn, since=since, limit=1000)
+    txs_show = txs[:args.limit]
+    logs = [tl for tl in repository.list_time_logs(conn) if tl.started_at >= since]
+    logs_show = logs[:args.limit]
+    period_net = sum(t.net_amount for t in txs)
+    hours = sum(tl.minutes for tl in logs) / 60.0
+    print(f"Last {args.days} days  ·  net=${period_net:.2f}  ·  {len(txs)} txns  ·  {hours:.1f}h logged")
+    if txs_show:
+        print("\nTransactions:")
+        for t in txs_show:
+            print(f"  {t.occurred_at[:10]}  {t.project_id:24}  ${t.net_amount:>8.2f}  {t.kind}")
+        if len(txs) > len(txs_show):
+            print(f"  … and {len(txs) - len(txs_show)} more")
+    if logs_show:
+        print("\nTime:")
+        for tl in logs_show:
+            print(f"  {tl.started_at[:10]}  {tl.project_id:24}  {tl.minutes/60:>5.1f}h  {tl.notes or ''}")
+    if not txs and not logs:
+        print("  (no activity in this window)")
+
+
+def cmd_import_live(args, conn):
+    if not os.environ.get("AT_LIVE_INTEGRATIONS"):
+        _exit_err("live imports require AT_LIVE_INTEGRATIONS=1 in .env")
+    since_iso, until_iso = _window_from_since(args.since, args.until)
+    ins, skp = integrations.import_live(conn, args.platform, since_iso, until_iso)
+    print(f"imported from {args.platform}: inserted={ins} skipped={skp} (window: {since_iso[:10]} → {until_iso[:10]})")
 
 
 def cmd_metrics(args, conn):
@@ -370,11 +415,13 @@ def cmd_seed(args, conn):
 
 def cmd_integrations(args, conn):
     connectors = integrations.list_connectors()
-    print("Integration connectors:")
+    live = bool(os.environ.get("AT_LIVE_INTEGRATIONS"))
+    print(f"Integration connectors (live={'on' if live else 'off'}):")
     for c in connectors:
-        status = c.get("configured", False)
-        marker = "● configured" if status else "○ stub"
-        print(f"  {marker}  {c['name']:12}  {c['platform']:14}  {c['description']}")
+        conn_obj = integrations.get_connector(c["name"])
+        ok, msg = conn_obj.verify()
+        marker = "● ready" if ok and c["configured"] else ("○ configured" if c["configured"] else "○ stub")
+        print(f"  {marker}  {c['name']:14}  {c['platform']:16}  {msg}")
 
 
 def cmd_import_mock(args, conn):
@@ -403,6 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="asset-tracker",
         description="Personal side-project + income registry",
     )
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     # init / doctor — daily essentials
@@ -416,6 +464,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     doc = sub.add_parser("doctor", help="Health check and setup guidance")
     doc.set_defaults(func=cmd_doctor)
+
+    rc = sub.add_parser("recent", help="Activity digest for the last N days")
+    rc.add_argument("--days", type=int, default=7)
+    rc.add_argument("--limit", type=int, default=15)
+    rc.set_defaults(func=cmd_recent)
 
     # quick log — the daily workhorse
     lg = sub.add_parser("log", help="Quick income log (uses config defaults)")
@@ -480,10 +533,10 @@ def build_parser() -> argparse.ArgumentParser:
     tx = sub.add_parser("tx", help="Manage transactions")
     txsub = tx.add_subparsers(dest="subcmd", required=True)
     txl = txsub.add_parser("log", help="Log a transaction (explicit flags)")
-    txl.add_argument("--project", required=True)
-    txl.add_argument("--channel", required=True, help="Channel id, name, or platform")
+    txl.add_argument("--project", help="Project id (default: config default_project)")
+    txl.add_argument("--channel", help="Channel id, name, or platform (default: config)")
     txl.add_argument("--gross", required=True, type=float)
-    txl.add_argument("--kind", required=True, choices=sorted(models.VALID_TX_KINDS))
+    txl.add_argument("--kind", choices=sorted(models.VALID_TX_KINDS), help="Defaults to channel kind")
     txl.add_argument("--date")
     txl.add_argument("--external")
     txl.add_argument("--notes")
@@ -557,6 +610,12 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--count", type=int, default=5)
     im.set_defaults(func=cmd_import_mock)
 
+    imp = sub.add_parser("import", help="Import live transactions from a platform (requires API key)")
+    imp.add_argument("platform", choices=[c["name"] for c in integrations.list_connectors()])
+    imp.add_argument("--since", default="30d", help="30d|90d|ytd|all|YYYY-MM-DD")
+    imp.add_argument("--until", help="YYYY-MM-DD (default: now)")
+    imp.set_defaults(func=cmd_import_live)
+
     # config
     cf = sub.add_parser("config", help="View or set local defaults")
     cfsub = cf.add_subparsers(dest="subcmd", required=True)
@@ -581,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args.func(args, conn)
         return 0
-    except (ValueError, LookupError) as e:
+    except (ValueError, LookupError, RuntimeError) as e:
         _exit_err(str(e))
     finally:
         conn.close()
