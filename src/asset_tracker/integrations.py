@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import http as http_mod
+from . import config as config_mod
 
 
 def _iso_to_unix(iso: str) -> int:
@@ -243,8 +244,8 @@ class BandcampConnector(Connector):
     def _fetch_recent_impl(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
         raise NotImplementedError(
             "Bandcamp has no stable public sales API. Export sales from the Bandcamp "
-            "dashboard and log them with `asset-tracker log <amount>` or use "
-            "`asset-tracker import-mock bandcamp` for pipeline testing."
+            "dashboard and import with `asset-tracker import csv <file> --platform bandcamp`, "
+            "or use `asset-tracker import-mock bandcamp` for pipeline testing."
         )
 
     def normalize(self, raw: dict) -> NormalizedTxn:
@@ -542,7 +543,34 @@ def import_live(
     if not connector.is_configured():
         raise ValueError(f"{connector.env_var} not set — add it to .env")
     txns = connector.fetch_recent(since_iso, until_iso)
-    return import_normalized(conn, txns, project_resolver, platform_id=connector.platform_id)
+    inserted, skipped = import_normalized(conn, txns, project_resolver, platform_id=connector.platform_id)
+    if inserted > 0:
+        config_mod.record_sync(connector.platform_id)
+    return inserted, skipped
+
+
+def import_sync(
+    conn: sqlite3.Connection,
+    since_iso: str,
+    until_iso: str,
+    project_resolver: Optional[dict[str, str]] = None,
+) -> dict[str, tuple[int, int] | str]:
+    """Import from every configured connector. Skip unconfigured; catch per-platform errors."""
+    results: dict[str, tuple[int, int] | str] = {}
+    for connector in REGISTRY:
+        if not connector.is_configured():
+            continue
+        if connector.platform_id == "bandcamp":
+            results[connector.platform_id] = "skipped: no live API (use import csv)"
+            continue
+        try:
+            inserted, skipped = import_live(
+                conn, connector.platform_id, since_iso, until_iso, project_resolver,
+            )
+            results[connector.platform_id] = (inserted, skipped)
+        except Exception as e:
+            results[connector.platform_id] = f"error: {e}"
+    return results
 
 
 def import_mock(conn: sqlite3.Connection, platform: str, count: int = 5) -> tuple[int, int]:

@@ -1,22 +1,25 @@
-# asset-tracker — Handover (v0.2.1)
+# asset-tracker — Handover (v0.3.0)
 
-**Status:** Ready for daily personal use · **Date:** 2026-07-03
+**Status:** Ready for daily personal use · **Date:** 2026-07-05
 
 ## TL;DR
 
-Local-first, stdlib-only Python CLI for tracking side projects and income. Run `asset-tracker init`, then `asset-tracker log 49.99` daily. **45/45 tests pass.** CI on Python 3.9 and 3.12.
+Local-first, stdlib-only Python CLI for tracking side projects and income. Run `asset-tracker init`, then `asset-tracker log 49.99` daily. **51/51 tests pass.** CI on Python 3.9 and 3.12.
 
 ## What ships
 
 | Area | Status |
 |---|---|
 | Daily workflow (`init`, `log`, `time`, `summary`, `recent`, `doctor`) | ✅ |
-| Config defaults (`data/.asset-tracker.json`) | ✅ |
+| Config defaults + `last_sync` timestamps (`data/.asset-tracker.json`) | ✅ |
 | Channel resolution by name/platform | ✅ |
-| Stripe live import (`import stripe`, stdlib urllib) | ✅ |
-| Gumroad/Bandcamp/GitHub/Etsy | Stub (normalize + mock import) |
+| Live import: Stripe, Gumroad, GitHub Sponsors, Etsy | ✅ |
+| `import sync` — all configured platforms at once | ✅ |
+| `import csv` — Bandcamp exports + generic CSV round-trip | ✅ |
+| Bandcamp live API | No (use `import csv` or manual `log`) |
 | Metrics, dashboard, backup, CSV/JSON export | ✅ |
-| Tests + CI | ✅ 45 tests |
+| Doctor integration health + stale-sync warnings | ✅ |
+| Tests + CI | ✅ 51 tests |
 
 ## Verification
 
@@ -29,6 +32,8 @@ PYTHONPATH=src python3 tests/test_integrations.py
 
 asset-tracker init --project-id demo --project-name Demo --category software --yes
 asset-tracker log 25
+asset-tracker import csv sales.csv --platform bandcamp --project demo
+asset-tracker import sync --since 30d   # requires AT_LIVE_INTEGRATIONS=1 + API keys
 asset-tracker doctor
 ```
 
@@ -37,8 +42,8 @@ asset-tracker doctor
 - Multi-currency conversion not implemented; metrics group by native currency (`by_currency` in JSON, per-currency rows in dashboard when mixed)
 - Tax categorization not in scope
 - Dashboard is one-shot TUI (no curses interactivity)
-- Stripe, Gumroad, GitHub Sponsors, and Etsy have live HTTP fetch; Bandcamp has no public sales API (use manual `log` or `import-mock`)
+- Bandcamp has no public sales API — export CSV from dashboard and use `import csv`
 
 ## Sign-off
 
-Productization sprint complete. Safe to merge and use with real data.
+Wave 2 ingestion complete. Safe to merge and use with real data.

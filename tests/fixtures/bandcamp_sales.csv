@@ -1,0 +1,4 @@
+date,item name,amount,currency,paypal transaction id
+2026-04-20,Album download,7.00,USD,pp_tx_001
+2026-05-01,Tip jar,3.50,USD,pp_tx_002
+2026-05-15,Merch bundle,25.00,EUR,pp_tx_003

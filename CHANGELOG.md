@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-07-05
+
+### Ingestion completion (Wave 2)
+
+- **`import csv`** — bulk import from Bandcamp sales exports or generic CSV (round-trips with `export-csv`)
+- **`import sync`** — fetch from all configured live platforms in one command
+- **Doctor integrations section** — connector verify status, last sync timestamps, stale-sync tips
+- **`last_sync` config** — tracks per-platform import timestamps in `.asset-tracker.json`
+
+### Tests
+
+- 51 tests total (+6)
+
 ## 0.2.2 — 2026-07-05
 
 ### Integrations and metrics
