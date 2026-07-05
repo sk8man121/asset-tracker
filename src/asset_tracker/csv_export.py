@@ -8,7 +8,7 @@ from __future__ import annotations
 import csv
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, TextIO
 
@@ -80,6 +80,50 @@ def export_projects_csv(
                 p.notes or "",
             ])
         return len(projs)
+    finally:
+        if own:
+            out.close()
+
+
+def export_rollup_csv(
+    conn: sqlite3.Connection,
+    out: TextIO | str | Path,
+    year: Optional[int] = None,
+) -> int:
+    """Monthly rollup by project/platform/currency for tax-year spreadsheets."""
+    yr = year or datetime.now(timezone.utc).year
+    start_iso = f"{yr}-01-01T00:00:00+00:00"
+    end_iso = f"{yr}-12-31T23:59:59+00:00"
+    sql = (
+        "SELECT substr(t.occurred_at, 1, 7) AS month, "
+        "       t.project_id, c.platform, t.currency, "
+        "       COALESCE(SUM(t.gross_amount), 0) AS gross, "
+        "       COALESCE(SUM(t.fee_amount), 0) AS fees, "
+        "       COALESCE(SUM(t.net_amount), 0) AS net, "
+        "       COUNT(t.id) AS tx_count "
+        "FROM transactions t "
+        "JOIN income_channels c ON t.channel_id = c.id "
+        "WHERE t.occurred_at >= ? AND t.occurred_at <= ? "
+        "GROUP BY month, t.project_id, c.platform, t.currency "
+        "ORDER BY month, t.project_id, c.platform, t.currency"
+    )
+    rows = conn.execute(sql, (start_iso, end_iso)).fetchall()
+    own = False
+    if isinstance(out, (str, Path)):
+        own = True
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out = open(out_path, "w", newline="")
+    try:
+        w = csv.writer(out)
+        w.writerow(["month", "project_id", "platform", "currency", "gross", "fees", "net", "tx_count"])
+        for r in rows:
+            w.writerow([
+                r["month"], r["project_id"], r["platform"], r["currency"],
+                round(r["gross"] or 0, 2), round(r["fees"] or 0, 2),
+                round(r["net"] or 0, 2), r["tx_count"],
+            ])
+        return len(rows)
     finally:
         if own:
             out.close()

@@ -88,7 +88,7 @@ def _bar(value: float, max_value: float, width: int = 20) -> str:
 
 # ---- renderers ----
 
-def _top_metrics(m: dict, width: int) -> list[str]:
+def _top_metrics(m: dict, width: int, compare_line: Optional[str] = None) -> list[str]:
     period = m.get("period", "30d").upper()
     by_curr = m.get("by_currency", [])
     multi = len(by_curr) > 1
@@ -125,6 +125,8 @@ def _top_metrics(m: dict, width: int) -> list[str]:
         f"{bold('Total')} {green(_money(total, currency)):>14}    "
         f"{bold(f'{period} net')}   {green(_money(p_net, currency)):>14}",
     ])
+    if compare_line:
+        lines.append(f"  {compare_line}")
     return lines
 
 
@@ -219,11 +221,18 @@ def _tti_panel(m: dict, width: int) -> list[str]:
 
 # ---- main entrypoint ----
 
-def render(conn: sqlite3.Connection, period: str = "30d") -> str:
+def render(conn: sqlite3.Connection, period: str = "30d", compare: bool = False) -> str:
     """Build the full dashboard as a single string. Width adapts to terminal."""
     from . import metrics as metrics_mod
     from . import onboard
+    from . import report as report_mod
     m = metrics_mod.compute_metrics(conn, period=period)
+    compare_line = None
+    if compare and period != "all":
+        rep = report_mod.build_report(conn, period=period, compare=True)
+        delta = rep.get("delta", {}).get("period_net", {})
+        pct = report_mod._format_delta(delta)
+        compare_line = f"{period.upper()} net comparison: {pct} vs prior {period}"
     width = min(max(_term_width(), 80), 140)
     sections: list[str] = []
     title = bold(cyan("  asset-tracker ")) + dim(f"· {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
@@ -242,7 +251,7 @@ def render(conn: sqlite3.Connection, period: str = "30d") -> str:
         ], width))
         return "\n".join(sections)
 
-    sections.extend(_box("Top metrics", _top_metrics(m, width), width))
+    sections.extend(_box("Top metrics", _top_metrics(m, width, compare_line), width))
     sections.append("")
     sections.extend(_box("By platform", _platform_table(m, width), width))
     sections.append("")

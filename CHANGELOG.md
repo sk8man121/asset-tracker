@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 — 2026-07-05
+
+### Reporting & review (Wave 3)
+
+- **`report`** — period summary with prior-window comparison (`--period month|quarter|30d|90d|ytd`)
+- **`report --json`** — machine-readable report payload with deltas, highlights, sparkline
+- **`export-csv rollup`** — monthly tax-year rollup by project/platform/currency
+- **`recent`** — per-project net summary block
+- **`dashboard --compare`** — period net delta vs prior window in top metrics panel
+- **Doctor** — suggests `report --period month` when healthy with transactions
+- Extended metrics periods: `month`, `quarter`; `tx_count` and `hours_logged` in metrics output
+
+### Tests
+
+- 59 tests total (+8)
+
 ## 0.3.0 — 2026-07-05
 
 ### Ingestion completion (Wave 2)

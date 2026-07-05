@@ -1,6 +1,6 @@
 [project]
 name = "asset-tracker"
-version = "0.3.0"
+version = "0.4.0"
 description = "Personal side-project + income registry"
 requires-python = ">=3.9"
 dependencies = []

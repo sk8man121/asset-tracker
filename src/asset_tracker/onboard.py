@@ -214,6 +214,8 @@ def run_doctor(conn: sqlite3.Connection) -> str:
             lines.append(f"  ✗ {i}")
     else:
         lines.append("status: healthy")
+        if counts.get("transactions", 0) > 0:
+            tips.append("monthly review: `asset-tracker report --period month`")
     if tips:
         lines.append("")
         lines.append("tips:")

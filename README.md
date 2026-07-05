@@ -52,9 +52,13 @@ asset-tracker log 29.00 --notes "book sale"
 # Log time for ROI tracking
 asset-tracker time log --minutes 90 --notes "feature work"
 
+# Weekly / monthly review
+asset-tracker recent          # last 7 days with per-project totals
+asset-tracker report --period month
+asset-tracker dashboard --compare
+
 # Weekly safety net
 asset-tracker backup
-asset-tracker recent          # last 7 days at a glance
 asset-tracker import sync --since 30d   # sync all configured platforms (optional)
 ```
 
@@ -88,8 +92,9 @@ asset-tracker import csv sales.csv --platform bandcamp --project my-album
 | `init` | First-run wizard (or `--seed` for demo data) |
 | `log <amount>` | Quick income log using config defaults |
 | `summary` | One-line morning check-in |
-| `dashboard` | Full 6-panel TUI view |
-| `recent` | Last N days of transactions + time |
+| `report` | Period report with prior-window comparison |
+| `dashboard` | Full 6-panel TUI view (`--compare` for period delta) |
+| `recent` | Last N days of transactions + per-project totals |
 | `doctor` | Health check + setup guidance |
 | `backup` | Crash-safe SQLite snapshot |
 
@@ -117,9 +122,11 @@ asset-tracker time list [--project X]
 ### Metrics & export
 
 ```
-asset-tracker metrics [--period 30d|90d|ytd|all]
+asset-tracker metrics [--period 30d|90d|month|quarter|ytd|all]
+asset-tracker report [--period month] [--json] [--no-compare]
 asset-tracker export [path]                    # full JSON dump
 asset-tracker export-csv tx out.csv            # CSV export
+asset-tracker export-csv rollup 2026.csv --year 2026
 asset-tracker config show                      # view defaults
 asset-tracker config set --default-project my-app --default-channel gumroad
 ```
@@ -147,9 +154,10 @@ PYTHONPATH=src python3 tests/test_basics.py    # 10 tests
 PYTHONPATH=src python3 tests/test_edges.py     # 17 tests
 PYTHONPATH=src python3 tests/test_daily.py     # 10 tests — daily workflow
 PYTHONPATH=src python3 tests/test_integrations.py  # 14 tests — platform imports + CSV/sync
+PYTHONPATH=src python3 tests/test_reporting.py     # 8 tests — reports + rollup export
 ```
 
-CI runs all 51 on push.
+CI runs all 59 on push.
 
 ## Integration connectors
 

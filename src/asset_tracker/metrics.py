@@ -25,6 +25,18 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+VALID_PERIODS = frozenset({"30d", "90d", "month", "quarter", "ytd", "all"})
+
+
+def _month_start(dt: datetime) -> datetime:
+    return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _quarter_start(dt: datetime) -> datetime:
+    q_month = ((dt.month - 1) // 3) * 3 + 1
+    return dt.replace(month=q_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
 def _period_window(period: str) -> tuple[datetime, datetime]:
     """Return (start, end) datetime for a period string."""
     now = _now()
@@ -32,11 +44,36 @@ def _period_window(period: str) -> tuple[datetime, datetime]:
         return now - timedelta(days=30), now
     if period == "90d":
         return now - timedelta(days=90), now
+    if period == "month":
+        return _month_start(now), now
+    if period == "quarter":
+        return _quarter_start(now), now
     if period == "ytd":
         return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0), now
     if period == "all":
         # Effectively no lower bound; use a sentinel.
         return datetime(1970, 1, 1, tzinfo=timezone.utc), now
+    raise ValueError(f"unknown period: {period}")
+
+
+def prior_period_window(period: str) -> tuple[datetime, datetime]:
+    """Return (start, end) for the comparison window immediately before `period`."""
+    if period == "all":
+        raise ValueError("period 'all' has no prior comparison window")
+    start, end = _period_window(period)
+    if period in ("30d", "90d"):
+        duration = end - start
+        prior_end = start
+        prior_start = prior_end - duration
+        return prior_start, prior_end
+    if period == "month":
+        prior_end = start - timedelta(seconds=1)
+        return _month_start(prior_end), prior_end
+    if period == "quarter":
+        prior_end = start - timedelta(seconds=1)
+        return _quarter_start(prior_end), prior_end
+    if period == "ytd":
+        return start.replace(year=start.year - 1), end.replace(year=end.year - 1)
     raise ValueError(f"unknown period: {period}")
 
 
@@ -65,14 +102,14 @@ def _sum_query(
     return (round(row["net"] or 0, 2), round(row["fees"] or 0, 2))
 
 
-def compute_metrics(
+def compute_metrics_for_window(
     conn: sqlite3.Connection,
+    start_iso: str,
+    end_iso: str,
     project_id: Optional[str] = None,
-    period: str = "30d",
+    period: str = "custom",
 ) -> dict:
-    start, end = _period_window(period)
-    start_iso = start.isoformat(timespec="seconds")
-    end_iso = end.isoformat(timespec="seconds")
+    """Compute metrics for an explicit ISO window (used by reports and comparisons)."""
 
     # MRR: last-30-days recurring-kind transactions, scoped by period if 30d, else still computed on last 30d
     mrr_start = (_now() - timedelta(days=30)).isoformat(timespec="seconds")
@@ -211,6 +248,23 @@ def compute_metrics(
         for r in conn.execute(curr_sql, curr_args).fetchall()
     ]
 
+    tx_count_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM transactions WHERE occurred_at >= ? AND occurred_at <= ?"
+        + (" AND project_id = ?" if project_id else ""),
+        ([start_iso, end_iso, project_id] if project_id else [start_iso, end_iso]),
+    ).fetchone()
+    tx_count = int(tx_count_row["c"] or 0)
+
+    hours_sql = (
+        "SELECT COALESCE(SUM(minutes), 0) AS minutes FROM time_logs "
+        "WHERE started_at >= ? AND started_at <= ?"
+    )
+    hours_args: list = [start_iso, end_iso]
+    if project_id:
+        hours_sql += " AND project_id = ?"
+        hours_args.append(project_id)
+    minutes_logged = int(conn.execute(hours_sql, hours_args).fetchone()["minutes"] or 0)
+
     return {
         "period": period,
         "window_start": start_iso,
@@ -223,9 +277,26 @@ def compute_metrics(
         "ytd_fees": round(ytd_fees, 2),
         "total_net": round(total_net, 2),
         "total_fees": round(total_fees, 2),
+        "tx_count": tx_count,
+        "hours_logged": round(minutes_logged / 60.0, 2),
         "per_platform": per_platform,
         "per_project": per_project,
         "time_to_income": time_to_income,
         "trend": trend,
         "by_currency": by_currency,
     }
+
+
+def compute_metrics(
+    conn: sqlite3.Connection,
+    project_id: Optional[str] = None,
+    period: str = "30d",
+) -> dict:
+    start, end = _period_window(period)
+    return compute_metrics_for_window(
+        conn,
+        start.isoformat(timespec="seconds"),
+        end.isoformat(timespec="seconds"),
+        project_id=project_id,
+        period=period,
+    )
