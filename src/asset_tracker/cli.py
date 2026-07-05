@@ -28,6 +28,7 @@ from . import integrations
 from . import csv_import
 from . import _compat
 from . import csv_export
+from . import report as report_mod
 
 
 # ---------- helpers ----------
@@ -329,6 +330,7 @@ def _format_currency_summary(by_currency: list[dict]) -> str:
 def cmd_recent(args, conn):
     """Show activity for the last N days — quick weekly review."""
     since = (datetime.now(timezone.utc) - timedelta(days=args.days)).isoformat(timespec="seconds")
+    until = datetime.now(timezone.utc).isoformat(timespec="seconds")
     txs = repository.list_transactions(conn, since=since, limit=1000)
     txs_show = txs[:args.limit]
     logs = [tl for tl in repository.list_time_logs(conn) if tl.started_at >= since]
@@ -344,6 +346,16 @@ def cmd_recent(args, conn):
         net_label = "net=" + " ".join(f"{c} {v:.2f}" for c, v in sorted(by_curr.items()))
     hours = sum(tl.minutes for tl in logs) / 60.0
     print(f"Last {args.days} days  ·  {net_label}  ·  {len(txs)} txns  ·  {hours:.1f}h logged")
+
+    by_project = report_mod.summarize_window(conn, since, until)
+    if by_project:
+        print("\nBy project:")
+        for row in by_project:
+            print(
+                f"  {row['project_id']:24}  {row['currency']} {row['net']:>8.2f}  "
+                f"({row['tx_count']} txn{'s' if row['tx_count'] != 1 else ''})"
+            )
+
     if txs_show:
         print("\nTransactions:")
         for t in txs_show:
@@ -422,13 +434,26 @@ def cmd_import_sync(args, conn):
             print(f"  {platform:16}  {outcome}")
 
 
+def cmd_report(args, conn):
+    report = report_mod.build_report(
+        conn,
+        period=args.period,
+        compare=not args.no_compare,
+        project_id=args.project,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        print(report_mod.format_report(report))
+
+
 def cmd_metrics(args, conn):
     result = metrics_mod.compute_metrics(conn, project_id=args.project, period=args.period)
     print(json.dumps(result, indent=2, default=str))
 
 
 def cmd_dashboard(args, conn):
-    out = dashboard_mod.render(conn, period=args.period)
+    out = dashboard_mod.render(conn, period=args.period, compare=args.compare)
     print(out)
 
 
@@ -458,6 +483,9 @@ def cmd_export_csv(args, conn):
             status=args.status, category=args.category,
         )
         _ok(f"wrote {n} projects to {args.path}")
+    elif args.kind == "rollup":
+        n = csv_export.export_rollup_csv(conn, args.path, year=args.year)
+        _ok(f"wrote {n} rollup rows to {args.path}")
     else:
         _exit_err(f"unknown kind: {args.kind}")
 
@@ -547,6 +575,13 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--days", type=int, default=7)
     rc.add_argument("--limit", type=int, default=15)
     rc.set_defaults(func=cmd_recent)
+
+    rp = sub.add_parser("report", help="Period report with optional comparison")
+    rp.add_argument("--period", default="30d", choices=sorted(metrics_mod.VALID_PERIODS))
+    rp.add_argument("--project")
+    rp.add_argument("--json", action="store_true", help="Emit JSON instead of TUI")
+    rp.add_argument("--no-compare", action="store_true", help="Current period only")
+    rp.set_defaults(func=cmd_report)
 
     # quick log — the daily workhorse
     lg = sub.add_parser("log", help="Quick income log (uses config defaults)")
@@ -646,11 +681,12 @@ def build_parser() -> argparse.ArgumentParser:
     # metrics / dashboard
     me = sub.add_parser("metrics", help="Compute metrics")
     me.add_argument("--project")
-    me.add_argument("--period", default="30d", choices=["30d", "90d", "ytd", "all"])
+    me.add_argument("--period", default="30d", choices=sorted(metrics_mod.VALID_PERIODS))
     me.set_defaults(func=cmd_metrics)
 
     dash = sub.add_parser("dashboard", help="Render TUI dashboard")
-    dash.add_argument("--period", default="30d", choices=["30d", "90d", "ytd", "all"])
+    dash.add_argument("--period", default="30d", choices=sorted(metrics_mod.VALID_PERIODS))
+    dash.add_argument("--compare", action="store_true", help="Show period net delta vs prior window")
     dash.set_defaults(func=cmd_dashboard)
 
     # ops
@@ -662,12 +698,13 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("path", nargs="?")
     ex.set_defaults(func=cmd_export)
 
-    cs = sub.add_parser("export-csv", help="Export transactions or projects to CSV")
-    cs.add_argument("kind", choices=["tx", "projects"])
+    cs = sub.add_parser("export-csv", help="Export transactions, projects, or rollup to CSV")
+    cs.add_argument("kind", choices=["tx", "projects", "rollup"])
     cs.add_argument("path")
     cs.add_argument("--project")
     cs.add_argument("--since")
     cs.add_argument("--until")
+    cs.add_argument("--year", type=int, help="Calendar year for rollup export (default: current year)")
     cs.add_argument("--tx-kind", choices=sorted(models.VALID_TX_KINDS))
     cs.add_argument("--status", choices=sorted(models.VALID_STATUSES))
     cs.add_argument("--category", choices=sorted(models.VALID_CATEGORIES))
