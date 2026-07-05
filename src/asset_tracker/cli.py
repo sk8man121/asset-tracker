@@ -25,6 +25,7 @@ from . import metrics as metrics_mod
 from . import dashboard as dashboard_mod
 from . import backup as backup_mod
 from . import integrations
+from . import csv_import
 from . import _compat
 from . import csv_export
 
@@ -357,6 +358,19 @@ def cmd_recent(args, conn):
         print("  (no activity in this window)")
 
 
+def _parse_column_overrides(specs: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for spec in specs:
+        if "=" not in spec:
+            _exit_err(f"invalid --column (expected field=Header): {spec}")
+        key, _, val = spec.partition("=")
+        key, val = key.strip(), val.strip()
+        if not key or not val:
+            _exit_err(f"invalid --column (expected field=Header): {spec}")
+        out[key] = val
+    return out
+
+
 def cmd_import_live(args, conn):
     if not os.environ.get("AT_LIVE_INTEGRATIONS"):
         _exit_err("live imports require AT_LIVE_INTEGRATIONS=1 in .env")
@@ -368,6 +382,44 @@ def cmd_import_live(args, conn):
         conn, args.platform, since_iso, until_iso, project_resolver=resolver,
     )
     print(f"imported from {args.platform}: inserted={ins} skipped={skp} (window: {since_iso[:10]} → {until_iso[:10]})")
+
+
+def cmd_import_csv(args, conn):
+    path = Path(args.file)
+    if args.project and not repository.get_project(conn, args.project):
+        _exit_err(f"project not found: {args.project}")
+    resolver = config.build_project_resolver(override_project=args.project)
+    column_map = _parse_column_overrides(args.column) if args.column else None
+    ins, skp, rejected = csv_import.import_csv(
+        conn, path,
+        platform=args.platform,
+        project_resolver=resolver,
+        column_map=column_map,
+    )
+    print(
+        f"imported from {path.name} ({args.platform}): "
+        f"inserted={ins} skipped={skp} rejected={rejected}"
+    )
+
+
+def cmd_import_sync(args, conn):
+    if not os.environ.get("AT_LIVE_INTEGRATIONS"):
+        _exit_err("live imports require AT_LIVE_INTEGRATIONS=1 in .env")
+    since_iso, until_iso = _window_from_since(args.since, args.until)
+    if args.project and not repository.get_project(conn, args.project):
+        _exit_err(f"project not found: {args.project}")
+    resolver = config.build_project_resolver(override_project=args.project)
+    results = integrations.import_sync(conn, since_iso, until_iso, project_resolver=resolver)
+    if not results:
+        print("no configured platforms to sync — set API keys in .env")
+        return
+    print(f"sync complete (window: {since_iso[:10]} → {until_iso[:10]}):")
+    for platform, outcome in sorted(results.items()):
+        if isinstance(outcome, tuple):
+            ins, skp = outcome
+            print(f"  {platform:16}  inserted={ins} skipped={skp}")
+        else:
+            print(f"  {platform:16}  {outcome}")
 
 
 def cmd_metrics(args, conn):
@@ -636,12 +688,34 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--count", type=int, default=5)
     im.set_defaults(func=cmd_import_mock)
 
-    imp = sub.add_parser("import", help="Import live transactions from a platform (requires API key)")
-    imp.add_argument("platform", choices=[c["name"] for c in integrations.list_connectors()])
-    imp.add_argument("--since", default="30d", help="30d|90d|ytd|all|YYYY-MM-DD")
-    imp.add_argument("--until", help="YYYY-MM-DD (default: now)")
-    imp.add_argument("--project", help="Force all imported txns to this local project id")
-    imp.set_defaults(func=cmd_import_live)
+    imp = sub.add_parser("import", help="Import transactions (live, CSV, or sync)")
+    impsub = imp.add_subparsers(dest="import_sub", required=True)
+
+    csv_imp = impsub.add_parser("csv", help="Import transactions from a CSV file")
+    csv_imp.add_argument("file", help="Path to CSV file")
+    csv_imp.add_argument("--platform", default="generic", choices=sorted(csv_import.PRESETS.keys()))
+    csv_imp.add_argument("--project", help="Force all imported txns to this local project id")
+    csv_imp.add_argument(
+        "--column", action="append", default=[],
+        help="Override column mapping: logical_field=CSV Header (repeatable)",
+    )
+    csv_imp.set_defaults(func=cmd_import_csv)
+
+    sync_imp = impsub.add_parser("sync", help="Import from all configured live platforms")
+    sync_imp.add_argument("--since", default="30d", help="30d|90d|ytd|all|YYYY-MM-DD")
+    sync_imp.add_argument("--until", help="YYYY-MM-DD (default: now)")
+    sync_imp.add_argument("--project", help="Force all imported txns to this local project id")
+    sync_imp.set_defaults(func=cmd_import_sync)
+
+    for c in integrations.REGISTRY:
+        lp = impsub.add_parser(
+            c.platform_id,
+            help=f"Import live transactions from {c.platform_name}",
+        )
+        lp.add_argument("--since", default="30d", help="30d|90d|ytd|all|YYYY-MM-DD")
+        lp.add_argument("--until", help="YYYY-MM-DD (default: now)")
+        lp.add_argument("--project", help="Force all imported txns to this local project id")
+        lp.set_defaults(func=cmd_import_live, platform=c.platform_id)
 
     # config
     cf = sub.add_parser("config", help="View or set local defaults")

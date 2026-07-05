@@ -3,11 +3,14 @@ onboard.py — First-run setup wizard and health checks.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 from . import config, db, models, repository
+from . import integrations
 
 
 def is_initialized(conn: sqlite3.Connection) -> bool:
@@ -146,6 +149,38 @@ def run_doctor(conn: sqlite3.Connection) -> str:
 
     issues: list[str] = []
     tips: list[str] = []
+
+    lines.append("")
+    lines.append("integrations:")
+    live = bool(os.environ.get("AT_LIVE_INTEGRATIONS"))
+    lines.append(f"  live imports: {'on' if live else 'off'}")
+    last_sync = config.get_last_sync()
+    now = datetime.now(timezone.utc)
+    stale_threshold = now - timedelta(days=30)
+    for c in integrations.REGISTRY:
+        conn_obj = integrations.get_connector(c.platform_id)
+        ok, msg = conn_obj.verify()
+        if conn_obj.is_configured():
+            marker = "●" if ok else "✗"
+            sync_at = last_sync.get(c.platform_id)
+            sync_note = f"last sync: {sync_at[:10]}" if sync_at else "never synced"
+            lines.append(f"  {marker} {c.platform_id:16}  {msg}  ({sync_note})")
+            if sync_at:
+                try:
+                    sync_dt = datetime.fromisoformat(sync_at.replace("Z", "+00:00"))
+                    if sync_dt.tzinfo is None:
+                        sync_dt = sync_dt.replace(tzinfo=timezone.utc)
+                    if sync_dt < stale_threshold:
+                        tips.append(
+                            f"{c.platform_id} last synced {sync_at[:10]} — "
+                            "run `asset-tracker import sync`"
+                        )
+                except ValueError:
+                    pass
+            elif c.platform_id != "bandcamp":
+                tips.append(f"{c.platform_id} configured but never synced — run `asset-tracker import {c.platform_id}`")
+        else:
+            lines.append(f"  ○ {c.platform_id:16}  not configured")
 
     if not is_initialized(conn):
         issues.append("database is empty — run `asset-tracker init`")

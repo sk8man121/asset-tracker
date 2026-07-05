@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -93,3 +94,23 @@ def build_project_resolver(
     if override_project:
         resolver["__force__"] = override_project
     return resolver
+
+
+def get_last_sync() -> dict[str, str]:
+    """Return {platform: ISO timestamp} of last successful import."""
+    raw = load_config().get("last_sync")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if k and v}
+
+
+def record_sync(platform: str, at: Optional[str] = None) -> None:
+    """Record a successful import timestamp for a platform."""
+    cfg = load_config()
+    last_sync = cfg.get("last_sync")
+    if not isinstance(last_sync, dict):
+        last_sync = {}
+    ts = at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    last_sync[platform] = ts
+    cfg["last_sync"] = last_sync
+    save_config(cfg)

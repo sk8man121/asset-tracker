@@ -55,6 +55,7 @@ asset-tracker time log --minutes 90 --notes "feature work"
 # Weekly safety net
 asset-tracker backup
 asset-tracker recent          # last 7 days at a glance
+asset-tracker import sync --since 30d   # sync all configured platforms (optional)
 ```
 
 With defaults configured (via `init` or `config set`), `log` needs only the amount. Channel names work instead of numeric IDs:
@@ -68,6 +69,14 @@ asset-tracker log 100 --channel gumroad
 ```bash
 # In .env: AT_STRIPE_API_KEY=sk_live_... and AT_LIVE_INTEGRATIONS=1
 asset-tracker import stripe --since 30d
+asset-tracker import sync --since 30d    # all configured platforms
+```
+
+### Bandcamp / manual CSV import
+
+```bash
+# Export sales CSV from Bandcamp dashboard, then:
+asset-tracker import csv sales.csv --platform bandcamp --project my-album
 ```
 
 ## Commands
@@ -137,10 +146,10 @@ asset-tracker config set --default-project my-app --default-channel gumroad
 PYTHONPATH=src python3 tests/test_basics.py    # 10 tests
 PYTHONPATH=src python3 tests/test_edges.py     # 17 tests
 PYTHONPATH=src python3 tests/test_daily.py     # 10 tests — daily workflow
-PYTHONPATH=src python3 tests/test_integrations.py  #  8 tests — platform imports
+PYTHONPATH=src python3 tests/test_integrations.py  # 14 tests — platform imports + CSV/sync
 ```
 
-CI runs all 45 on push.
+CI runs all 51 on push.
 
 ## Integration connectors
 
@@ -152,12 +161,14 @@ Five platform connectors ship with normalized import plumbing. Live API fetch re
 | Gumroad | Yes | `AT_GUMROAD_ACCESS_TOKEN` |
 | GitHub Sponsors | Yes | `AT_GITHUB_TOKEN` |
 | Etsy | Yes | `AT_ETSY_API_KEY`, `AT_ETSY_SHOP_ID` |
-| Bandcamp | No (no public sales API) | Use `import-mock` or manual `log` |
+| Bandcamp | No (no public sales API) | Use `import csv` or manual `log` |
 
 ```bash
 asset-tracker integrations
 asset-tracker import stripe --since 30d --project my-saas
 asset-tracker import gumroad --since 30d
+asset-tracker import sync --since 30d
+asset-tracker import csv sales.csv --platform bandcamp
 asset-tracker import-mock stripe --count 10   # synthetic test data
 ```
 

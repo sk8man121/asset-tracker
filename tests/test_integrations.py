@@ -16,7 +16,8 @@ from unittest.mock import patch
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
-from asset_tracker import db, integrations, models, repository
+from asset_tracker import db, integrations, models, repository, csv_import, config, onboard
+from asset_tracker import csv_export
 
 
 PASSED = 0
@@ -234,6 +235,152 @@ def test_import_config_project_map():
         os.environ.pop("AT_LIVE_INTEGRATIONS", None)
 
 
+def test_csv_import_bandcamp_fixture():
+    fixture = Path(HERE) / "fixtures" / "bandcamp_sales.csv"
+    txns, rejected = csv_import.parse_csv_rows(fixture, platform="bandcamp")
+    assert rejected == 0
+    assert len(txns) == 3
+    assert txns[0].gross_amount == 7.0
+    assert txns[0].external_id == "pp_tx_001"
+    assert txns[2].currency == "EUR"
+
+
+def test_csv_import_idempotent():
+    td = tempfile.TemporaryDirectory()
+    os.environ["AT_DB_PATH"] = str(Path(td.name) / "test.db")
+    fixture = Path(HERE) / "fixtures" / "bandcamp_sales.csv"
+    try:
+        conn = db.connect()
+        db.init_schema(conn)
+        repository.create_project(conn, models.Project(
+            id="my-album", name="My Album", category="music", status="active",
+        ))
+        resolver = {"__force__": "my-album"}
+        ins1, skp1, _ = csv_import.import_csv(
+            conn, fixture, platform="bandcamp", project_resolver=resolver,
+        )
+        ins2, skp2, _ = csv_import.import_csv(
+            conn, fixture, platform="bandcamp", project_resolver=resolver,
+        )
+        assert ins1 == 3 and skp1 == 0
+        assert ins2 == 0 and skp2 == 3
+        assert config.get_last_sync().get("csv:bandcamp")
+        conn.close()
+    finally:
+        td.cleanup()
+        os.environ.pop("AT_DB_PATH", None)
+
+
+def test_csv_import_generic_roundtrip():
+    td = tempfile.TemporaryDirectory()
+    os.environ["AT_DB_PATH"] = str(Path(td.name) / "test.db")
+    csv_path = Path(td.name) / "roundtrip.csv"
+    try:
+        conn = db.connect()
+        db.init_schema(conn)
+        repository.create_project(conn, models.Project(
+            id="rt-proj", name="RT", category="software", status="active",
+        ))
+        repository.create_channel(conn, models.IncomeChannel(
+            id=None, project_id="rt-proj", name="Test", platform="direct", kind="one_time",
+        ))
+        ch_id = repository.list_channels(conn, project_id="rt-proj")[0].id
+        repository.create_transaction(conn, models.Transaction(
+            id=None, project_id="rt-proj", channel_id=ch_id,
+            occurred_at="2026-06-01T12:00:00+00:00",
+            gross_amount=100.0, currency="USD", net_amount=90.0,
+            kind="one_time", fee_amount=10.0, external_id="rt_001",
+        ))
+        n = csv_export.export_transactions_csv(conn, csv_path, project_id="rt-proj")
+        assert n == 1
+        conn.execute("DELETE FROM transactions")
+        ins, skp, rejected = csv_import.import_csv(
+            conn, csv_path, platform="generic",
+            project_resolver={"__force__": "rt-proj"},
+        )
+        assert rejected == 0
+        assert ins == 1 and skp == 0
+        txs = repository.list_transactions(conn, project_id="rt-proj")
+        assert len(txs) == 1
+        conn.close()
+    finally:
+        td.cleanup()
+        os.environ.pop("AT_DB_PATH", None)
+
+
+def test_import_sync_skips_unconfigured():
+    td = tempfile.TemporaryDirectory()
+    os.environ["AT_DB_PATH"] = str(Path(td.name) / "test.db")
+    os.environ["AT_LIVE_INTEGRATIONS"] = "1"
+    try:
+        conn = db.connect()
+        db.init_schema(conn)
+        results = integrations.import_sync(
+            conn, "2024-01-01T00:00:00+00:00", "2026-12-31T23:59:59+00:00",
+        )
+        assert results == {}
+        conn.close()
+    finally:
+        td.cleanup()
+        os.environ.pop("AT_DB_PATH", None)
+        os.environ.pop("AT_LIVE_INTEGRATIONS", None)
+
+
+def test_import_sync_mocked():
+    td = tempfile.TemporaryDirectory()
+    os.environ["AT_DB_PATH"] = str(Path(td.name) / "test.db")
+    os.environ["AT_STRIPE_API_KEY"] = "sk_test_fake"
+    os.environ["AT_GUMROAD_ACCESS_TOKEN"] = "tok_fake"
+    os.environ["AT_BANDCAMP_FAN_TOKEN"] = "bc_fake"
+    os.environ["AT_LIVE_INTEGRATIONS"] = "1"
+    stripe_fixture = json.loads((Path(HERE) / "fixtures" / "stripe_charges.json").read_text())
+    gumroad_fixture = json.loads((Path(HERE) / "fixtures" / "gumroad_sales.json").read_text())
+
+    def fake_get_json(url, *, headers=None, params=None, timeout=30):
+        if "charges" in url:
+            return {"data": stripe_fixture, "has_more": False}
+        if "sales" in url:
+            return {"success": True, "sales": gumroad_fixture, "next_page_url": None}
+        return {}
+
+    try:
+        conn = db.connect()
+        db.init_schema(conn)
+        with patch("asset_tracker.http.get_json", side_effect=fake_get_json):
+            results = integrations.import_sync(
+                conn, "2024-01-01T00:00:00+00:00", "2026-12-31T23:59:59+00:00",
+            )
+        assert results["stripe"] == (2, 0)
+        assert results["gumroad"] == (1, 0)
+        assert results["bandcamp"] == "skipped: no live API (use import csv)"
+        assert "stripe" in config.get_last_sync()
+        conn.close()
+    finally:
+        td.cleanup()
+        os.environ.pop("AT_DB_PATH", None)
+        os.environ.pop("AT_STRIPE_API_KEY", None)
+        os.environ.pop("AT_GUMROAD_ACCESS_TOKEN", None)
+        os.environ.pop("AT_BANDCAMP_FAN_TOKEN", None)
+        os.environ.pop("AT_LIVE_INTEGRATIONS", None)
+
+
+def test_doctor_shows_integrations():
+    td = tempfile.TemporaryDirectory()
+    os.environ["AT_DB_PATH"] = str(Path(td.name) / "test.db")
+    os.environ["AT_STRIPE_API_KEY"] = "sk_test_fake"
+    try:
+        conn = db.connect()
+        db.init_schema(conn)
+        out = onboard.run_doctor(conn)
+        assert "integrations:" in out
+        assert "stripe" in out
+        conn.close()
+    finally:
+        td.cleanup()
+        os.environ.pop("AT_DB_PATH", None)
+        os.environ.pop("AT_STRIPE_API_KEY", None)
+
+
 if __name__ == "__main__":
     print("=== test_integrations.py ===")
     _record("stripe normalize", test_stripe_normalize)
@@ -244,5 +391,11 @@ if __name__ == "__main__":
     _record("etsy fetch mocked", test_etsy_fetch_mocked)
     _record("import project override", test_import_project_override)
     _record("import config project map", test_import_config_project_map)
+    _record("csv import bandcamp fixture", test_csv_import_bandcamp_fixture)
+    _record("csv import idempotent", test_csv_import_idempotent)
+    _record("csv import generic roundtrip", test_csv_import_generic_roundtrip)
+    _record("import sync skips unconfigured", test_import_sync_skips_unconfigured)
+    _record("import sync mocked", test_import_sync_mocked)
+    _record("doctor shows integrations", test_doctor_shows_integrations)
     print(f"\n=== {PASSED} passed, {FAILED} failed ===")
     sys.exit(1 if FAILED else 0)

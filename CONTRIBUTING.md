@@ -42,6 +42,8 @@ Use descriptive branch names, e.g. `cursor/feature-description-b61c` for cloud a
 4. Add env var to `.env.example`
 5. Add mocked fixture + test in `tests/test_integrations.py`
 
+For platforms without a live API, add a CSV preset in `src/asset_tracker/csv_import.py` (`PRESETS` dict) so users can bulk-import dashboard exports via `import csv`.
+
 ## Pull requests
 
 Fill out the PR template checklist and keep docs (`README.md`, `docs/handover.md`) in sync when behavior changes.
