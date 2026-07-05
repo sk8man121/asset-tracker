@@ -1,5 +1,7 @@
 # State After Sprint 6 (Mid-Loop Audit)
 
+> **Historical checkpoint** — sprints 7–12 and v0.2.x productization are complete. See [handover.md](handover.md) for current state.
+
 **Loop:** asset-tracker · **Tier:** RALPH (12 sprints) · **Date:** 2026-06-28
 
 ## What works

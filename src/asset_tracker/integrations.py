@@ -7,9 +7,10 @@ Each platform gets a Connector class with a uniform interface:
   - normalize(raw) -> NormalizedTxn
   - verify() -> tuple[bool, str]
 
-Live HTTP calls are intentionally NOT made. The methods that *would* call a
-remote API are gated behind `AT_LIVE_INTEGRATIONS=1` and raise NotImplementedError
-otherwise. This is the scaffold for future live integrations.
+Live HTTP fetch is implemented for Stripe, Gumroad, GitHub Sponsors, and Etsy.
+Bandcamp has no stable public sales API — live fetch raises with a manual-workflow
+hint. All live calls require `AT_LIVE_INTEGRATIONS=1` and the platform env var;
+without that flag, `fetch_recent()` raises NotImplementedError by design.
 
 To wire a new platform:
   1. Subclass `Connector`
@@ -30,6 +31,17 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import http as http_mod
+
+
+def _iso_to_unix(iso: str) -> int:
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
+def _iso_date_only(iso: str) -> str:
+    return iso[:10]
 
 
 @dataclass
@@ -111,10 +123,7 @@ class StripeConnector(Connector):
             return (False, str(e))
 
     def _iso_to_unix(self, iso: str) -> int:
-        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return int(dt.timestamp())
+        return _iso_to_unix(iso)
 
     def _fetch_recent_impl(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
         since_unix = self._iso_to_unix(since_iso)
@@ -169,8 +178,41 @@ class GumroadConnector(Connector):
     platform_name = "Gumroad"
     env_var = "AT_GUMROAD_ACCESS_TOKEN"
 
+    def _verify_live(self) -> tuple[bool, str]:
+        try:
+            data = http_mod.get_json(
+                "https://api.gumroad.com/v2/user",
+                params={"access_token": self._env_value()},
+            )
+            if data.get("success"):
+                user = data.get("user", {})
+                return (True, f"Gumroad OK — {user.get('email', 'authenticated')}")
+            return (False, data.get("message", "Gumroad auth failed"))
+        except http_mod.HttpError as e:
+            return (False, str(e))
+
     def _fetch_recent_impl(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
-        raise NotImplementedError("Gumroad live fetcher not implemented in this loop")
+        token = self._env_value()
+        sales: list[dict] = []
+        page = 1
+        while True:
+            data = http_mod.get_json(
+                "https://api.gumroad.com/v2/sales",
+                params={
+                    "access_token": token,
+                    "after": _iso_date_only(since_iso),
+                    "before": _iso_date_only(until_iso),
+                    "page": page,
+                },
+            )
+            if not data.get("success"):
+                raise RuntimeError(data.get("message", "Gumroad sales fetch failed"))
+            batch = data.get("sales", [])
+            sales.extend(batch)
+            if not data.get("next_page_url") or not batch:
+                break
+            page += 1
+        return [self.normalize(s) for s in sales]
 
     def normalize(self, raw: dict) -> NormalizedTxn:
         # Gumroad sale shape:
@@ -199,7 +241,11 @@ class BandcampConnector(Connector):
     env_var = "AT_BANDCAMP_FAN_TOKEN"
 
     def _fetch_recent_impl(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
-        raise NotImplementedError("Bandcamp live fetcher not implemented in this loop")
+        raise NotImplementedError(
+            "Bandcamp has no stable public sales API. Export sales from the Bandcamp "
+            "dashboard and log them with `asset-tracker log <amount>` or use "
+            "`asset-tracker import-mock bandcamp` for pipeline testing."
+        )
 
     def normalize(self, raw: dict) -> NormalizedTxn:
         # Bandcamp sale shape (sketch — real API differs):
@@ -223,8 +269,78 @@ class GitHubSponsorsConnector(Connector):
     platform_name = "GitHub Sponsors"
     env_var = "AT_GITHUB_TOKEN"
 
+    def _verify_live(self) -> tuple[bool, str]:
+        try:
+            data = http_mod.get_json(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"Bearer {self._env_value()}",
+                    "Accept": "application/vnd.github+json",
+                },
+            )
+            return (True, f"GitHub OK — {data.get('login', 'authenticated')}")
+        except http_mod.HttpError as e:
+            return (False, str(e))
+
     def _fetch_recent_impl(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
-        raise NotImplementedError("GitHub Sponsors live fetcher not implemented in this loop")
+        query = """
+        query($cursor: String) {
+          viewer {
+            sponsorshipsAsMaintainer(first: 100, after: $cursor) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                createdAt
+                tier { monthlyPriceInDollars }
+                sponsorEntity { ... on User { login } }
+              }
+            }
+          }
+        }
+        """
+        token = self._env_value()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        }
+        since_dt = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+        until_dt = datetime.fromisoformat(until_iso.replace("Z", "+00:00"))
+        raw_events: list[dict] = []
+        cursor: Optional[str] = None
+        while True:
+            variables = {"cursor": cursor} if cursor else {}
+            data = http_mod.post_json(
+                "https://api.github.com/graphql",
+                headers=headers,
+                body={"query": query, "variables": variables},
+            )
+            if data.get("errors"):
+                raise RuntimeError(data["errors"][0].get("message", "GitHub GraphQL error"))
+            conn_data = data.get("data", {}).get("viewer", {}).get("sponsorshipsAsMaintainer", {})
+            for node in conn_data.get("nodes", []):
+                created = node.get("createdAt")
+                if not created:
+                    continue
+                created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                if created_dt < since_dt or created_dt > until_dt:
+                    continue
+                login = (node.get("sponsorEntity") or {}).get("login", "unknown")
+                dollars = float((node.get("tier") or {}).get("monthlyPriceInDollars") or 0)
+                raw_events.append({
+                    "id": f"ghs_{login}_{created[:10]}",
+                    "created_at": created,
+                    "project_id": "unassigned",
+                    "sponsorship": {
+                        "tier": {"monthly_price_in_cents": int(dollars * 100)},
+                        "is_one_time_payment": False,
+                    },
+                })
+            page_info = conn_data.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                break
+        return [self.normalize(ev) for ev in raw_events]
 
     def normalize(self, raw: dict) -> NormalizedTxn:
         # GitHub Sponsors webhook payload (sketch):
@@ -251,18 +367,64 @@ class EtsyConnector(Connector):
     platform_name = "Etsy"
     env_var = "AT_ETSY_API_KEY"
 
+    def _shop_id(self) -> str:
+        shop_id = os.environ.get("AT_ETSY_SHOP_ID", "")
+        if not shop_id:
+            raise ValueError("AT_ETSY_SHOP_ID not set — add your Etsy shop id to .env")
+        return shop_id
+
+    def _verify_live(self) -> tuple[bool, str]:
+        try:
+            data = http_mod.get_json(
+                f"https://openapi.etsy.com/v3/application/shops/{self._shop_id()}",
+                headers={"x-api-key": self._env_value()},
+            )
+            title = data.get("shop_name") or data.get("title") or self._shop_id()
+            return (True, f"Etsy OK — shop {title}")
+        except http_mod.HttpError as e:
+            return (False, str(e))
+
     def _fetch_recent_impl(self, since_iso: str, until_iso: str) -> list[NormalizedTxn]:
-        raise NotImplementedError("Etsy live fetcher not implemented in this loop")
+        shop_id = self._shop_id()
+        since_unix = _iso_to_unix(since_iso)
+        until_unix = _iso_to_unix(until_iso)
+        receipts: list[dict] = []
+        offset = 0
+        limit = 100
+        while True:
+            data = http_mod.get_json(
+                f"https://openapi.etsy.com/v3/application/shops/{shop_id}/receipts",
+                headers={"x-api-key": self._env_value()},
+                params={
+                    "min_created": since_unix,
+                    "max_created": until_unix,
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+            batch = data.get("results", [])
+            receipts.extend(batch)
+            if len(batch) < limit:
+                break
+            offset += limit
+        return [self.normalize(r) for r in receipts]
 
     def normalize(self, raw: dict) -> NormalizedTxn:
+        created = raw.get("creation_tsz")
+        if isinstance(created, (int, float)):
+            occurred = datetime.fromtimestamp(int(created), tz=timezone.utc).isoformat(timespec="seconds")
+        else:
+            occurred = str(created or datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        grand = float(raw.get("grandtotal", 0))
+        fee = float(raw.get("total_fee", 0))
         return NormalizedTxn(
             external_id=str(raw.get("receipt_id")),
             project_id=raw.get("project_id", "unassigned"),
             channel_name=raw.get("title", "Etsy sale"),
-            occurred_at=raw.get("creation_tsz", datetime.now(timezone.utc).isoformat(timespec="seconds")),
-            gross_amount=float(raw.get("grandtotal", 0)),
-            fee_amount=float(raw.get("total_fee", 0)),
-            net_amount=float(raw.get("grandtotal", 0)) - float(raw.get("total_fee", 0)),
+            occurred_at=occurred,
+            gross_amount=grand,
+            fee_amount=fee,
+            net_amount=grand - fee,
             currency=raw.get("currency_code", "USD"),
             kind="one_time",
         )
@@ -322,10 +484,13 @@ def import_normalized(
     from . import models, repository
     inserted = 0
     skipped = 0
+    force_project = (project_resolver or {}).get("__force__")
     for nt in txns:
         nt.finalize_net()
         project_id = nt.project_id
-        if project_resolver and project_id in project_resolver:
+        if force_project:
+            project_id = force_project
+        elif project_resolver and project_id in project_resolver:
             project_id = project_resolver[project_id]
 
         # Ensure the project exists; auto-create as 'idea' if unknown.

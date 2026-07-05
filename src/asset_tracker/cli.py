@@ -311,6 +311,20 @@ def cmd_time_list(args, conn):
     print(f"  ----  total: {total / 60.0:.1f}h ({len(logs)} entries)")
 
 
+def _format_currency_summary(by_currency: list[dict]) -> str:
+    if not by_currency:
+        return ""
+    if len(by_currency) == 1:
+        c = by_currency[0]["currency"]
+        return f"mrr={c} {by_currency[0]['mrr']:.2f}  arr={c} {by_currency[0]['arr']:.2f}  " \
+               f"ytd={c} {by_currency[0]['ytd_net']:.2f}  total={c} {by_currency[0]['total_net']:.2f}"
+    parts = []
+    for row in by_currency:
+        c = row["currency"]
+        parts.append(f"{c} mrr={row['mrr']:.2f} ytd={row['ytd_net']:.2f} total={row['total_net']:.2f}")
+    return "  ".join(parts)
+
+
 def cmd_recent(args, conn):
     """Show activity for the last N days — quick weekly review."""
     since = (datetime.now(timezone.utc) - timedelta(days=args.days)).isoformat(timespec="seconds")
@@ -318,9 +332,17 @@ def cmd_recent(args, conn):
     txs_show = txs[:args.limit]
     logs = [tl for tl in repository.list_time_logs(conn) if tl.started_at >= since]
     logs_show = logs[:args.limit]
-    period_net = sum(t.net_amount for t in txs)
+    by_curr: dict[str, float] = {}
+    for t in txs:
+        by_curr[t.currency] = by_curr.get(t.currency, 0.0) + t.net_amount
+    if len(by_curr) <= 1:
+        currency = next(iter(by_curr), "USD")
+        period_net = by_curr.get(currency, 0.0)
+        net_label = f"net={currency} {period_net:.2f}"
+    else:
+        net_label = "net=" + " ".join(f"{c} {v:.2f}" for c, v in sorted(by_curr.items()))
     hours = sum(tl.minutes for tl in logs) / 60.0
-    print(f"Last {args.days} days  ·  net=${period_net:.2f}  ·  {len(txs)} txns  ·  {hours:.1f}h logged")
+    print(f"Last {args.days} days  ·  {net_label}  ·  {len(txs)} txns  ·  {hours:.1f}h logged")
     if txs_show:
         print("\nTransactions:")
         for t in txs_show:
@@ -339,7 +361,12 @@ def cmd_import_live(args, conn):
     if not os.environ.get("AT_LIVE_INTEGRATIONS"):
         _exit_err("live imports require AT_LIVE_INTEGRATIONS=1 in .env")
     since_iso, until_iso = _window_from_since(args.since, args.until)
-    ins, skp = integrations.import_live(conn, args.platform, since_iso, until_iso)
+    if args.project and not repository.get_project(conn, args.project):
+        _exit_err(f"project not found: {args.project}")
+    resolver = config.build_project_resolver(override_project=args.project)
+    ins, skp = integrations.import_live(
+        conn, args.platform, since_iso, until_iso, project_resolver=resolver,
+    )
     print(f"imported from {args.platform}: inserted={ins} skipped={skp} (window: {since_iso[:10]} → {until_iso[:10]})")
 
 
@@ -392,11 +419,10 @@ def cmd_summary(args, conn):
         "SELECT occurred_at FROM transactions ORDER BY occurred_at DESC LIMIT 1"
     ).fetchone()
     last_str = last_tx["occurred_at"][:10] if last_tx else "never"
+    metrics_line = _format_currency_summary(m.get("by_currency", []))
     print(
         f"projects={p_count} (active={a_count})  txns={t_count}  "
-        f"mrr=${m['mrr']:.2f}  arr=${m['arr']:.2f}  "
-        f"ytd=${m['ytd_net']:.2f}  total=${m['total_net']:.2f}  "
-        f"last_txn={last_str}"
+        f"{metrics_line}  last_txn={last_str}"
     )
     if not onboard.is_initialized(conn):
         print("→ run `asset-tracker init` to get started", file=sys.stderr)
@@ -614,6 +640,7 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("platform", choices=[c["name"] for c in integrations.list_connectors()])
     imp.add_argument("--since", default="30d", help="30d|90d|ytd|all|YYYY-MM-DD")
     imp.add_argument("--until", help="YYYY-MM-DD (default: now)")
+    imp.add_argument("--project", help="Force all imported txns to this local project id")
     imp.set_defaults(func=cmd_import_live)
 
     # config

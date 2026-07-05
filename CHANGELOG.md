@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.2 — 2026-07-05
+
+### Integrations and metrics
+
+- **Gumroad, GitHub Sponsors, Etsy** live import (mocked tests included)
+- **Bandcamp** documented as manual/`import-mock` only (no public sales API)
+- **`import --project`** flag and `import_project_map` config for project remapping
+- **`by_currency`** metrics grouping; dashboard/summary/recent show per-currency when mixed
+- **Doctor** warns when `unassigned` project has imported transactions
+
+### Docs and hygiene
+
+- MIT `LICENSE` file
+- Synced stale Ralph/README/integration docs
+- GitHub issue/PR templates and `CONTRIBUTING.md`
+- 45 tests total (+7)
+
 ## 0.2.0 — 2026-07-03
 
 ### Daily use productization

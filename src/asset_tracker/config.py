@@ -73,3 +73,23 @@ def set_defaults(default_project: Optional[str] = None, default_channel: Optiona
     if default_channel is not None:
         cfg["default_channel"] = default_channel
     return save_config(cfg)
+
+
+def get_import_project_map() -> dict[str, str]:
+    """Return {external_or_import_id: local_project_id} from config."""
+    raw = load_config().get("import_project_map")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if k and v}
+
+
+def build_project_resolver(
+    *,
+    override_project: Optional[str] = None,
+    config_map: Optional[dict[str, str]] = None,
+) -> dict[str, str]:
+    """Merge config import map with optional CLI --project override."""
+    resolver = dict(config_map or get_import_project_map())
+    if override_project:
+        resolver["__force__"] = override_project
+    return resolver

@@ -1,0 +1,16 @@
+{
+  "data": {
+    "viewer": {
+      "sponsorshipsAsMaintainer": {
+        "pageInfo": {"hasNextPage": false, "endCursor": null},
+        "nodes": [
+          {
+            "createdAt": "2026-06-01T00:05:00Z",
+            "tier": {"monthlyPriceInDollars": 25},
+            "sponsorEntity": {"login": "sponsor1"}
+          }
+        ]
+      }
+    }
+  }
+}

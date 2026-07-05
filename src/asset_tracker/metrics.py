@@ -183,6 +183,34 @@ def compute_metrics(
     trend = [{"day": r["day"], "net": round(r["net"], 2), "tx_count": r["tx_count"]}
              for r in conn.execute(trend_sql, trend_args).fetchall()]
 
+    # Per-currency breakdown (no FX conversion — native amounts only)
+    mrr_start_iso = (_now() - timedelta(days=30)).isoformat(timespec="seconds")
+    curr_sql = (
+        "SELECT currency, "
+        "       COALESCE(SUM(CASE WHEN kind = 'recurring' AND occurred_at >= ? AND occurred_at <= ? "
+        "                    THEN net_amount ELSE 0 END), 0) AS mrr, "
+        "       COALESCE(SUM(CASE WHEN occurred_at >= ? AND occurred_at <= ? THEN net_amount ELSE 0 END), 0) AS period_net, "
+        "       COALESCE(SUM(CASE WHEN occurred_at >= ? AND occurred_at <= ? THEN net_amount ELSE 0 END), 0) AS ytd_net, "
+        "       COALESCE(SUM(net_amount), 0) AS total_net "
+        "FROM transactions WHERE 1=1 "
+    )
+    curr_args: list = [mrr_start_iso, end_iso, start_iso, end_iso, ytd_start, end_iso]
+    if project_id:
+        curr_sql += " AND project_id = ?"
+        curr_args.append(project_id)
+    curr_sql += " GROUP BY currency ORDER BY total_net DESC"
+    by_currency = [
+        {
+            "currency": r["currency"],
+            "mrr": round(r["mrr"] or 0, 2),
+            "arr": round((r["mrr"] or 0) * 12, 2),
+            "period_net": round(r["period_net"] or 0, 2),
+            "ytd_net": round(r["ytd_net"] or 0, 2),
+            "total_net": round(r["total_net"] or 0, 2),
+        }
+        for r in conn.execute(curr_sql, curr_args).fetchall()
+    ]
+
     return {
         "period": period,
         "window_start": start_iso,
@@ -199,4 +227,5 @@ def compute_metrics(
         "per_project": per_project,
         "time_to_income": time_to_income,
         "trend": trend,
+        "by_currency": by_currency,
     }

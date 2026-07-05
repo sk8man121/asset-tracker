@@ -1,0 +1,11 @@
+[
+  {
+    "id": "sale_abc",
+    "created_at": "2026-06-15T12:00:00Z",
+    "price": 2500,
+    "currency": "USD",
+    "product_name": "My ebook",
+    "recurrence": "monthly",
+    "custom_fields": {}
+  }
+]

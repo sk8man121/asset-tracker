@@ -189,6 +189,31 @@ def test_dashboard_empty_hint():
         os.environ.pop("AT_DB_PATH", None)
 
 
+def test_doctor_unassigned_warning():
+    td, conn, _, _ = _fresh_env()
+    try:
+        repository.create_project(conn, models.Project(
+            id="unassigned", name="Unassigned", category="service", status="idea",
+        ))
+        ch_id = repository.create_channel(conn, models.IncomeChannel(
+            id=None, project_id="unassigned", name="Import",
+            platform="stripe", kind="one_time",
+        ))
+        repository.create_transaction(conn, models.Transaction(
+            id=None, project_id="unassigned", channel_id=ch_id,
+            occurred_at="2026-06-01T12:00:00+00:00",
+            gross_amount=10.0, net_amount=10.0, currency="USD", kind="one_time",
+            external_id="ext_1",
+        ))
+        report = onboard.run_doctor(conn)
+        assert "unassigned" in report
+        assert "import_project_map" in report
+    finally:
+        conn.close()
+        td.cleanup()
+        os.environ.pop("AT_DB_PATH", None)
+
+
 if __name__ == "__main__":
     print("=== test_daily.py ===")
     _record("config roundtrip", test_config_roundtrip)
@@ -199,6 +224,7 @@ if __name__ == "__main__":
     _record("time log", test_time_log)
     _record("doctor empty", test_doctor_empty)
     _record("doctor healthy", test_doctor_healthy)
+    _record("doctor unassigned warning", test_doctor_unassigned_warning)
     _record("dashboard empty hint", test_dashboard_empty_hint)
     print(f"\n=== {PASSED} passed, {FAILED} failed ===")
     sys.exit(1 if FAILED else 0)

@@ -135,20 +135,36 @@ asset-tracker config set --default-project my-app --default-channel gumroad
 
 ```bash
 PYTHONPATH=src python3 tests/test_basics.py    # 10 tests
-PYTHONPATH=src python3 tests/test_edges.py     # 16 tests
-PYTHONPATH=src python3 tests/test_daily.py     #  9 tests — daily workflow
-PYTHONPATH=src python3 tests/test_integrations.py  #  3 tests — Stripe import
+PYTHONPATH=src python3 tests/test_edges.py     # 17 tests
+PYTHONPATH=src python3 tests/test_daily.py     # 10 tests — daily workflow
+PYTHONPATH=src python3 tests/test_integrations.py  #  8 tests — platform imports
 ```
 
-CI runs all 38 on push.
+CI runs all 45 on push.
 
 ## Integration connectors
 
-Five platform connectors ship with normalized import plumbing. Live API fetch is gated behind `AT_LIVE_INTEGRATIONS=1` — stubs by design until you wire your own keys.
+Five platform connectors ship with normalized import plumbing. Live API fetch requires `AT_LIVE_INTEGRATIONS=1` in `.env`:
+
+| Platform | Live import | Env var |
+|----------|-------------|---------|
+| Stripe | Yes | `AT_STRIPE_API_KEY` |
+| Gumroad | Yes | `AT_GUMROAD_ACCESS_TOKEN` |
+| GitHub Sponsors | Yes | `AT_GITHUB_TOKEN` |
+| Etsy | Yes | `AT_ETSY_API_KEY`, `AT_ETSY_SHOP_ID` |
+| Bandcamp | No (no public sales API) | Use `import-mock` or manual `log` |
 
 ```bash
 asset-tracker integrations
+asset-tracker import stripe --since 30d --project my-saas
+asset-tracker import gumroad --since 30d
 asset-tracker import-mock stripe --count 10   # synthetic test data
+```
+
+Set `metadata.project_id` on Stripe charges, or pass `--project` to override. Optional config map in `data/.asset-tracker.json`:
+
+```json
+{ "import_project_map": { "unassigned": "my-saas" } }
 ```
 
 ## Architecture

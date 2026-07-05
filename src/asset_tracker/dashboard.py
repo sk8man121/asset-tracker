@@ -90,23 +90,42 @@ def _bar(value: float, max_value: float, width: int = 20) -> str:
 
 def _top_metrics(m: dict, width: int) -> list[str]:
     period = m.get("period", "30d").upper()
+    by_curr = m.get("by_currency", [])
+    multi = len(by_curr) > 1
+    lines = [
+        f" {bold('Period:')} {cyan(period)}            "
+        f"{bold('Window:')} {m.get('window_start', '?')[:10]} → {m.get('window_end', '?')[:10]}",
+        f" {dim('MRR = 30-day recurring revenue (not subscription-normalized)')}",
+        "",
+    ]
+    if multi:
+        header = f"  {'Currency':<8} {'MRR':>12} {'YTD':>12} {'Total':>12} {period + ' net':>12}"
+        lines.append(header)
+        lines.append("  " + "─" * (width - 4))
+        for row in by_curr:
+            lines.append(
+                f"  {row['currency']:<8} {green(_money(row['mrr'], row['currency'])):>12} "
+                f"{green(_money(row['ytd_net'], row['currency'])):>12} "
+                f"{green(_money(row['total_net'], row['currency'])):>12} "
+                f"{green(_money(row['period_net'], row['currency'])):>12}"
+            )
+        return lines
+    currency = by_curr[0]["currency"] if by_curr else "USD"
     mrr = m.get("mrr", 0.0)
     arr = m.get("arr", 0.0)
     ytd = m.get("ytd_net", 0.0)
     total = m.get("total_net", 0.0)
     fees = m.get("period_fees", 0.0)
     p_net = m.get("period_net", 0.0)
-    return [
-        f" {bold('Period:')} {cyan(period)}            "
-        f"{bold('Window:')} {m.get('window_start', '?')[:10]} → {m.get('window_end', '?')[:10]}",
-        "",
-        f"  {bold('MRR')}   {_money(mrr):>14}    "
-        f"{bold('ARR')}   {_money(arr):>14}    "
-        f"{bold('Fees')}   {red(_money(fees)):>14}",
-        f"  {bold('YTD')}   {green(_money(ytd)):>14}    "
-        f"{bold('Total')} {green(_money(total)):>14}    "
-        f"{bold(f'{period} net')}   {green(_money(p_net)):>14}",
-    ]
+    lines.extend([
+        f"  {bold('MRR')}   {_money(mrr, currency):>14}    "
+        f"{bold('ARR')}   {_money(arr, currency):>14}    "
+        f"{bold('Fees')}   {red(_money(fees, currency)):>14}",
+        f"  {bold('YTD')}   {green(_money(ytd, currency)):>14}    "
+        f"{bold('Total')} {green(_money(total, currency)):>14}    "
+        f"{bold(f'{period} net')}   {green(_money(p_net, currency)):>14}",
+    ])
+    return lines
 
 
 def _platform_table(m: dict, width: int) -> list[str]:

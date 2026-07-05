@@ -83,7 +83,7 @@ Time spent on a project — feeds ROI/time-to-income metrics.
 ## Storage
 
 - **Engine:** SQLite, single file `data/asset-tracker.db`
-- **Backup:** every write → snapshot to `data/backups/<timestamp>.db` (keep 7)
+- **Backup:** manual via `asset-tracker backup` → snapshot to `data/backups/<timestamp>.db` (keep 7 by default)
 - **Export:** JSON dump to `data/export.json` for cross-tool portability
 - **Seed:** `seed/seed.json` ships with sample data for sanity tests
 
@@ -93,7 +93,7 @@ Time spent on a project — feeds ROI/time-to-income metrics.
 
 ## Out of scope (this loop)
 
-- Multi-currency conversion (everything stored in native currency, summary grouped by `currency`)
+- Multi-currency conversion (everything stored in native currency; summaries include `by_currency` grouping without FX conversion)
 - Tax categorization (could be a `tags` column added later)
 - Bank reconciliation
 - Web UI (TUI only, this loop)

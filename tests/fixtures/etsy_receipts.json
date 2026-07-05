@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "receipt_id": 9001,
+      "creation_tsz": 1717000000,
+      "grandtotal": 42.50,
+      "total_fee": 4.25,
+      "currency_code": "USD",
+      "title": "Handmade mug"
+    }
+  ]
+}

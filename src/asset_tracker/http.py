@@ -18,6 +18,25 @@ class HttpError(RuntimeError):
         self.url = url
 
 
+def post_json(
+    url: str,
+    *,
+    headers: Optional[dict[str, str]] = None,
+    body: Optional[dict[str, Any]] = None,
+    timeout: int = 30,
+) -> dict:
+    """POST request with JSON body, return parsed JSON. Raises HttpError on non-2xx."""
+    data = json.dumps(body or {}).encode("utf-8")
+    req_headers = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        raise HttpError(e.code, err_body, url) from e
+
+
 def get_json(
     url: str,
     *,

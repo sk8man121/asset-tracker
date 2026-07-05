@@ -352,6 +352,39 @@ def t16():
         conn.close(); td.cleanup()
 
 
+# ---------- multi-currency ----------
+
+@make_test("multi-currency metrics split by currency, not blended")
+def t17():
+    td, conn = fresh_db()
+    try:
+        p = models.Project(id="p", name="P", category="software", status="active")
+        repository.create_project(conn, p)
+        usd_ch = models.IncomeChannel(id=None, project_id="p", name="USD ch",
+                                      platform="direct", kind="one_time", currency="USD")
+        eur_ch = models.IncomeChannel(id=None, project_id="p", name="EUR ch",
+                                      platform="direct", kind="one_time", currency="EUR")
+        usd_id = repository.create_channel(conn, usd_ch)
+        eur_id = repository.create_channel(conn, eur_ch)
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        repository.create_transaction(conn, models.Transaction(
+            id=None, project_id="p", channel_id=usd_id, occurred_at=now,
+            gross_amount=100.0, net_amount=100.0, currency="USD", kind="one_time",
+        ))
+        repository.create_transaction(conn, models.Transaction(
+            id=None, project_id="p", channel_id=eur_id, occurred_at=now,
+            gross_amount=50.0, net_amount=50.0, currency="EUR", kind="one_time",
+        ))
+        m = metrics.compute_metrics(conn, period="all")
+        by_curr = {row["currency"]: row for row in m["by_currency"]}
+        assert len(by_curr) == 2
+        assert by_curr["USD"]["total_net"] == 100.0
+        assert by_curr["EUR"]["total_net"] == 50.0
+        assert m["total_net"] == 150.0  # backward-compat blended total
+    finally:
+        conn.close(); td.cleanup()
+
+
 if __name__ == "__main__":
     print()
     print(f"=== {PASSED} passed, {FAILED} failed ===")

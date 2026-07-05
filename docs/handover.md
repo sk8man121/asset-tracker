@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-Local-first, stdlib-only Python CLI for tracking side projects and income. Run `asset-tracker init`, then `asset-tracker log 49.99` daily. **38/38 tests pass.** CI on Python 3.9 and 3.12.
+Local-first, stdlib-only Python CLI for tracking side projects and income. Run `asset-tracker init`, then `asset-tracker log 49.99` daily. **45/45 tests pass.** CI on Python 3.9 and 3.12.
 
 ## What ships
 
@@ -16,7 +16,7 @@ Local-first, stdlib-only Python CLI for tracking side projects and income. Run `
 | Stripe live import (`import stripe`, stdlib urllib) | ✅ |
 | Gumroad/Bandcamp/GitHub/Etsy | Stub (normalize + mock import) |
 | Metrics, dashboard, backup, CSV/JSON export | ✅ |
-| Tests + CI | ✅ 38 tests |
+| Tests + CI | ✅ 45 tests |
 
 ## Verification
 
@@ -34,10 +34,10 @@ asset-tracker doctor
 
 ## Known limitations
 
-- Multi-currency conversion not implemented (store native currency per txn)
+- Multi-currency conversion not implemented; metrics group by native currency (`by_currency` in JSON, per-currency rows in dashboard when mixed)
 - Tax categorization not in scope
 - Dashboard is one-shot TUI (no curses interactivity)
-- Only Stripe has live HTTP fetch; other platforms need API wiring
+- Stripe, Gumroad, GitHub Sponsors, and Etsy have live HTTP fetch; Bandcamp has no public sales API (use manual `log` or `import-mock`)
 
 ## Sign-off
 

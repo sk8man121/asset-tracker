@@ -1,11 +1,13 @@
 # RALPH-SUMMARY: asset-tracker-rerun
 
-**Loop:** asset-tracker (re-execution as 12-run RALPH) · **Tier:** RALPH · **Started:** 2026-06-28
+**Loop:** asset-tracker (re-execution as 12-run RALPH) · **Tier:** RALPH · **Started:** 2026-06-28 · **Completed:** 2026-06-29
 
-## State (latest run)
+## State (current)
 
-Run #: 5
-Status: Sprints 1-5 complete; Sprints 6-12 still pending verification
+Run #: 12 (final)
+Status: **All 12 sprints complete** · **v0.2.2** · **45/45 tests pass**
+
+Post-loop productization (v0.2.0–0.2.1) added daily workflow commands, Stripe live import, and 12 additional tests (`test_daily` + `test_integrations`).
 
 ## 12-sprint plan
 
@@ -28,9 +30,11 @@ Status: Sprints 1-5 complete; Sprints 6-12 still pending verification
 
 ```bash
 # Are we still on track?
-cd /Users/openclaw/hermes-data/projects/asset-tracker
-PYTHONPATH=src /usr/bin/python3 tests/test_basics.py
-PYTHONPATH=src /usr/bin/python3 tests/test_edges.py
+cd "$(git rev-parse --show-toplevel)"
+PYTHONPATH=src python3 tests/test_basics.py
+PYTHONPATH=src python3 tests/test_edges.py
+PYTHONPATH=src python3 tests/test_daily.py
+PYTHONPATH=src python3 tests/test_integrations.py
 git log --oneline | head -15
 cat .ralph_loop_state | head -30
 ```
@@ -38,5 +42,6 @@ cat .ralph_loop_state | head -30
 ## Prior artifact (do not regress)
 
 - 12 commits: `5ebeed9` → `24c3444`
-- 26/26 tests pass
+- 45/45 tests pass (10 + 17 + 10 + 8)
 - Dashboard renders with seed data
+- Stripe live import works behind `AT_LIVE_INTEGRATIONS=1`

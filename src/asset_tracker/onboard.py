@@ -153,6 +153,17 @@ def run_doctor(conn: sqlite3.Connection) -> str:
         tips.append("log your first transaction: `asset-tracker log <amount>`")
     if counts.get("projects", 0) > 0 and counts.get("income_channels", 0) == 0:
         issues.append("projects exist but no income channels — add one with `channel add`")
+    unassigned = repository.get_project(conn, "unassigned")
+    if unassigned:
+        tx_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM transactions WHERE project_id = ?",
+            ("unassigned",),
+        ).fetchone()["c"]
+        if tx_count > 0:
+            issues.append(
+                f"project 'unassigned' has {tx_count} imported txns — "
+                "set import_project_map in config or re-import with --project"
+            )
     if not cfg.get("default_project") and counts.get("projects", 0) == 1:
         pid = conn.execute("SELECT id FROM projects LIMIT 1").fetchone()["id"]
         tips.append(f"set a default project: config will auto-set on next `log` (currently: {pid})")

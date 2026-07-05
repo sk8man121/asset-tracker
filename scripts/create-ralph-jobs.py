@@ -10,25 +10,31 @@ The run prompt is the canonical ralph-loop template with the
 which the harness script (`ralph-optimize-prompts.py`) targets for injection
 of per-run token logging + cache-control discipline blocks.
 
-Workdir is `/Users/openclaw/hermes-data` (internal disk, NOT the SSD wedge trap).
+Workdir defaults to the repo parent (internal disk). Override with AT_RALPH_WORKDIR if needed.
 The run prompt cd's into the project dir explicitly.
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-sys.path.insert(0, "/Users/openclaw/.hermes/hermes-agent")
-from cron.jobs import create_job  # type: ignore
-
-
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_DIR = str(REPO_ROOT)
+HERMES_AGENT = os.environ.get("AT_HERMES_AGENT", str(Path.home() / ".hermes" / "hermes-agent"))
+RALPH_WORKDIR = os.environ.get("AT_RALPH_WORKDIR", str(REPO_ROOT.parent))
 SLUG = "asset-tracker-rerun"
-PROJECT_DIR = "/Users/openclaw/hermes-data/projects/asset-tracker"
 TOTAL_RUNS = 12
 CADENCE_MIN = 30  # 30-min wall clock between runs
 FIRST_OFFSET_MIN = 1  # first run starts 1 min from now
+
+try:
+    sys.path.insert(0, HERMES_AGENT)
+    from cron.jobs import create_job  # type: ignore
+except ImportError:
+    create_job = None  # type: ignore[misc, assignment]
 
 
 def _iso(dt: datetime) -> str:
@@ -41,8 +47,8 @@ def build_prompt(run_num: int) -> str:
 ## Context
 
 The asset-tracker project was originally built inline (no cron) and shipped 12/12
-sprints with 26/26 tests passing. The artifact is on disk at:
-  /Users/openclaw/hermes-data/projects/asset-tracker/
+sprints with 38/38 tests passing. The artifact is on disk at:
+  {PROJECT_DIR}/
 
 This RALPH rerun re-executes the same 12 sprints as 12 separate 30-min cron-fired
 subagents. Your job: verify the prior work for your sprint is on disk, surface
@@ -243,11 +249,14 @@ PYTHONPATH=src /usr/bin/python3 tests/test_basics.py
 PYTHONPATH=src /usr/bin/python3 tests/test_edges.py
 ```
 Both should pass (10/10 + 16/16). Mark Sprint 12 done. **Write the
-`.ralph-complete` sentinel**: `touch /Users/openclaw/hermes-data/projects/asset-tracker/.ralph-complete`.""",
+`.ralph-complete` sentinel**: `touch {PROJECT_DIR}/.ralph-complete`.""",
 }
 
 
 def main() -> int:
+    if create_job is None:
+        print("error: hermes-agent not found — set AT_HERMES_AGENT", file=sys.stderr)
+        return 1
     now = datetime.now(timezone.utc)
     first = now + timedelta(minutes=FIRST_OFFSET_MIN)
     created = 0
@@ -263,7 +272,7 @@ def main() -> int:
             schedule=_iso(fire_at),
             repeat=1,
             deliver="local",
-            workdir="/Users/openclaw/hermes-data",
+            workdir=RALPH_WORKDIR,
             enabled_toolsets=["terminal", "file", "web"],
         )
         print(f"  created run-{i:02d} → {fire_at.isoformat(timespec='seconds')}  id={job['id']}")
