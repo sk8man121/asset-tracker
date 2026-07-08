@@ -9,13 +9,39 @@ import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
+# Query param names that must never appear in exception messages / logs.
+_SECRET_QUERY_KEYS = frozenset({
+    "access_token", "token", "key", "api_key", "apikey", "secret",
+    "password", "authorization", "auth",
+})
+
+
+def redact_url(url: str) -> str:
+    """Return a copy of *url* with secret query params replaced by 'REDACTED'."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return "<unparseable-url>"
+    if not parts.query:
+        return url
+    pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    redacted = [
+        (k, "REDACTED" if k.lower() in _SECRET_QUERY_KEYS else v)
+        for k, v in pairs
+    ]
+    return urllib.parse.urlunsplit((
+        parts.scheme, parts.netloc, parts.path,
+        urllib.parse.urlencode(redacted), parts.fragment,
+    ))
+
 
 class HttpError(RuntimeError):
     def __init__(self, status: int, body: str, url: str):
-        super().__init__(f"HTTP {status} from {url}: {body[:200]}")
+        safe_url = redact_url(url)
+        super().__init__(f"HTTP {status} from {safe_url}: {body[:200]}")
         self.status = status
         self.body = body
-        self.url = url
+        self.url = safe_url
 
 
 def post_json(

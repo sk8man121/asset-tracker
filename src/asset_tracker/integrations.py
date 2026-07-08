@@ -495,10 +495,11 @@ def import_normalized(
             project_id = project_resolver[project_id]
 
         # Ensure the project exists; auto-create as 'idea' if unknown.
+        # Category must satisfy schema CHECK — "other" is a platform, not a category.
         if not repository.get_project(conn, project_id):
             repository.create_project(conn, models.Project(
                 id=project_id, name=project_id,
-                category="other" if "other" in models.VALID_CATEGORIES else "service",
+                category="service",
                 status="idea",
                 notes=f"Auto-created by import at {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
             ))

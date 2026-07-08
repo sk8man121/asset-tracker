@@ -17,6 +17,9 @@ prior_artifact_note: |
 
 # RALPH: asset-tracker — 12-sprint rerun
 
+> **Historical.** This file documents the 2026-06 RALPH loop (26 tests at close).
+> Current product is **v0.4.1 / 65 tests**. See `docs/handover.md` and `docs/NEXT-AGENT.md`.
+
 ## Goal
 Re-execute the asset-tracker 12-sprint build as a real RALPH loop (12 cron-fired
 30-min subagents, ~6h wall clock). The original artifact is on disk; the goal of

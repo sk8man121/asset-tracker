@@ -18,7 +18,8 @@ _SPARK_CHARS = "▁▂▃▄▅▆▇█"
 def _delta(current: float, prior: float) -> dict[str, Any]:
     abs_delta = round(current - prior, 2)
     if prior == 0:
-        pct = None if current == 0 else None
+        # No meaningful percent when prior window is empty.
+        pct = None
         label = "new" if current != 0 else "n/a"
     else:
         pct = round((abs_delta / prior) * 100, 1)

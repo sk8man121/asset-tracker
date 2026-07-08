@@ -70,8 +70,20 @@ def test_delta_new_when_prior_zero():
     d = report._delta(100.0, 0.0)
     assert d["label"] == "new"
     assert d["absolute"] == 100.0
+    assert d["percent"] is None
     d2 = report._delta(0.0, 0.0)
     assert d2["label"] == "n/a"
+    assert d2["percent"] is None
+    d3 = report._delta(150.0, 100.0)
+    assert d3["label"] is None
+    assert d3["percent"] == 50.0
+    assert d3["absolute"] == 50.0
+    d4 = report._delta(80.0, 100.0)
+    assert d4["percent"] == -20.0
+    assert report._format_delta(d) == "new"
+    assert report._format_delta(d2) == "n/a"
+    assert report._format_delta(d3) == "+50.0%"
+    assert report._format_delta(d4) == "-20.0%"
 
 
 def test_empty_db_report_renders():

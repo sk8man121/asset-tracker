@@ -226,13 +226,16 @@ def render(conn: sqlite3.Connection, period: str = "30d", compare: bool = False)
     from . import metrics as metrics_mod
     from . import onboard
     from . import report as report_mod
-    m = metrics_mod.compute_metrics(conn, period=period)
     compare_line = None
     if compare and period != "all":
+        # build_report already computes the current window — reuse it.
         rep = report_mod.build_report(conn, period=period, compare=True)
+        m = rep["current"]
         delta = rep.get("delta", {}).get("period_net", {})
         pct = report_mod._format_delta(delta)
         compare_line = f"{period.upper()} net comparison: {pct} vs prior {period}"
+    else:
+        m = metrics_mod.compute_metrics(conn, period=period)
     width = min(max(_term_width(), 80), 140)
     sections: list[str] = []
     title = bold(cyan("  asset-tracker ")) + dim(f"· {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
