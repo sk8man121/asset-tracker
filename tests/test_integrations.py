@@ -381,6 +381,54 @@ def test_doctor_shows_integrations():
         os.environ.pop("AT_STRIPE_API_KEY", None)
 
 
+def test_http_error_redacts_access_token():
+    from asset_tracker import http as http_mod
+    secret = "super-secret-gumroad-token-xyz"
+    url = f"https://api.gumroad.com/v2/sales?access_token={secret}&page=1"
+    err = http_mod.HttpError(401, '{"success":false}', url)
+    msg = str(err)
+    assert secret not in msg
+    assert secret not in err.url
+    assert "REDACTED" in err.url
+    assert "access_token=REDACTED" in err.url
+    # redact_url helper directly
+    safe = http_mod.redact_url(url)
+    assert secret not in safe
+    assert "REDACTED" in safe
+
+
+def test_auto_import_project_uses_valid_category():
+    """Unknown project_id from import must create a schema-valid category."""
+    td = tempfile.TemporaryDirectory()
+    os.environ["AT_DB_PATH"] = str(Path(td.name) / "test.db")
+    try:
+        conn = db.connect()
+        db.init_schema(conn)
+        nt = integrations.NormalizedTxn(
+            external_id="ext-auto-1",
+            occurred_at="2026-01-15T12:00:00+00:00",
+            gross_amount=25.0,
+            currency="USD",
+            kind="one_time",
+            project_id="brand-new-from-import",
+            channel_name="Stripe",
+            fee_amount=0.0,
+            net_amount=25.0,
+            notes=None,
+        )
+        ins, skp = integrations.import_normalized(conn, [nt], platform_id="stripe")
+        assert ins == 1 and skp == 0
+        proj = repository.get_project(conn, "brand-new-from-import")
+        assert proj is not None
+        assert proj.category in models.VALID_CATEGORIES
+        assert proj.category == "service"
+        assert proj.status == "idea"
+        conn.close()
+    finally:
+        td.cleanup()
+        os.environ.pop("AT_DB_PATH", None)
+
+
 if __name__ == "__main__":
     print("=== test_integrations.py ===")
     _record("stripe normalize", test_stripe_normalize)
@@ -397,5 +445,7 @@ if __name__ == "__main__":
     _record("import sync skips unconfigured", test_import_sync_skips_unconfigured)
     _record("import sync mocked", test_import_sync_mocked)
     _record("doctor shows integrations", test_doctor_shows_integrations)
+    _record("http error redacts access_token", test_http_error_redacts_access_token)
+    _record("auto-import project valid category", test_auto_import_project_uses_valid_category)
     print(f"\n=== {PASSED} passed, {FAILED} failed ===")
     sys.exit(1 if FAILED else 0)

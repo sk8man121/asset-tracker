@@ -153,11 +153,12 @@ asset-tracker config set --default-project my-app --default-channel gumroad
 PYTHONPATH=src python3 tests/test_basics.py    # 10 tests
 PYTHONPATH=src python3 tests/test_edges.py     # 17 tests
 PYTHONPATH=src python3 tests/test_daily.py     # 10 tests — daily workflow
-PYTHONPATH=src python3 tests/test_integrations.py  # 14 tests — platform imports + CSV/sync
+PYTHONPATH=src python3 tests/test_integrations.py  # 16 tests — platform imports + CSV/sync + HTTP redaction
 PYTHONPATH=src python3 tests/test_reporting.py     # 8 tests — reports + rollup export
+PYTHONPATH=src python3 tests/test_backup.py        # 4 tests — snapshot / seed / JSON export
 ```
 
-CI runs all 59 on push.
+CI runs all 65 on push.
 
 ## Integration connectors
 
@@ -196,7 +197,7 @@ CLI → repository → SQLite
     integrations (NormalizedTxn → idempotent import)
 ```
 
-Zero external dependencies. Python ≥ 3.9. ~3,200 lines.
+Zero external dependencies. Python ≥ 3.9. ~3,700 lines.
 
 ## License
 

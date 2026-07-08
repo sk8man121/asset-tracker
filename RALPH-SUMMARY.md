@@ -5,9 +5,14 @@
 ## State (current)
 
 Run #: 12 (final)
-Status: **All 12 sprints complete** · **v0.2.2** · **45/45 tests pass**
+Status: **All 12 sprints complete** · **v0.4.1** · **65/65 tests pass**
 
-Post-loop productization (v0.2.0–0.2.1) added daily workflow commands, Stripe live import, and 12 additional tests (`test_daily` + `test_integrations`).
+Post-loop productization:
+- v0.2.0–0.2.1 — daily workflow, Stripe live import
+- v0.2.2 — Gumroad/GitHub/Etsy connectors, docs hygiene
+- v0.3.0 — CSV import + import sync (Wave 2)
+- v0.4.0 — reporting & review (Wave 3)
+- v0.4.1 — hardening: HTTP redaction, metrics refactor, backup tests (Wave 4)
 
 ## 12-sprint plan
 
@@ -29,19 +34,19 @@ Post-loop productization (v0.2.0–0.2.1) added daily workflow commands, Stripe 
 ## Quick state checks
 
 ```bash
-# Are we still on track?
 cd "$(git rev-parse --show-toplevel)"
 PYTHONPATH=src python3 tests/test_basics.py
 PYTHONPATH=src python3 tests/test_edges.py
 PYTHONPATH=src python3 tests/test_daily.py
 PYTHONPATH=src python3 tests/test_integrations.py
+PYTHONPATH=src python3 tests/test_reporting.py
+PYTHONPATH=src python3 tests/test_backup.py
 git log --oneline | head -15
-cat .ralph_loop_state | head -30
 ```
 
 ## Prior artifact (do not regress)
 
-- 12 commits: `5ebeed9` → `24c3444`
-- 45/45 tests pass (10 + 17 + 10 + 8)
+- Original RALPH loop: 12 commits → `24c3444` (26 tests at loop close)
+- Current product: 65 tests across six suites; see `docs/NEXT-AGENT.md` for Wave 5+
 - Dashboard renders with seed data
 - Stripe live import works behind `AT_LIVE_INTEGRATIONS=1`

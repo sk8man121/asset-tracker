@@ -1,10 +1,10 @@
-# asset-tracker — Handover (v0.4.0)
+# asset-tracker — Handover (v0.4.1)
 
-**Status:** Ready for daily personal use · **Date:** 2026-07-05
+**Status:** Ready for daily personal use · **Date:** 2026-07-08
 
 ## TL;DR
 
-Local-first, stdlib-only Python CLI for tracking side projects and income. Run `asset-tracker init`, then `asset-tracker log 49.99` daily. **59/59 tests pass.** CI on Python 3.9 and 3.12.
+Local-first, stdlib-only Python CLI for tracking side projects and income. Run `asset-tracker init`, then `asset-tracker log 49.99` daily. **65/65 tests pass.** CI on Python 3.9 and 3.12.
 
 ## What ships
 
@@ -20,7 +20,8 @@ Local-first, stdlib-only Python CLI for tracking side projects and income. Run `
 | Bandcamp live API | No (use `import csv` or manual `log`) |
 | Metrics, dashboard, backup, CSV/JSON export | ✅ |
 | Doctor integration health + stale-sync warnings | ✅ |
-| Tests + CI | ✅ 59 tests |
+| HTTP secret redaction in errors | ✅ |
+| Tests + CI | ✅ 65 tests |
 
 ## Verification
 
@@ -31,6 +32,7 @@ PYTHONPATH=src python3 tests/test_edges.py
 PYTHONPATH=src python3 tests/test_daily.py
 PYTHONPATH=src python3 tests/test_integrations.py
 PYTHONPATH=src python3 tests/test_reporting.py
+PYTHONPATH=src python3 tests/test_backup.py
 
 asset-tracker init --project-id demo --project-name Demo --category software --yes
 asset-tracker log 25
@@ -48,6 +50,10 @@ asset-tracker doctor
 - Dashboard is one-shot TUI (no curses interactivity)
 - Bandcamp has no public sales API — export CSV from dashboard and use `import csv`
 
+## Next work
+
+See [NEXT-AGENT.md](NEXT-AGENT.md) for the ordered Wave 5+ backlog.
+
 ## Sign-off
 
-Wave 3 reporting complete. Safe to merge and use for weekly/monthly review with real data.
+Wave 4 hardening complete. Safe to merge and use for weekly/monthly review with real data.

@@ -146,29 +146,48 @@ def compute_metrics_for_window(
     ]
 
     # Per-project: revenue + time + ROI (for the requested scope).
-    # NOTE: a naive LEFT JOIN with time_logs would multiply minutes by the number
-    # of transactions for that project (cartesian product). Use scalar subqueries
-    # to avoid that.
-    proj_sql = (
-        "SELECT p.id AS id, p.name AS name, p.category AS category, "
-        "       p.status AS status, p.started_at AS started_at, "
-        "       COALESCE((SELECT SUM(net_amount) FROM transactions t "
-        "                 WHERE t.project_id = p.id "
-        "                   AND t.occurred_at >= ? AND t.occurred_at <= ?), 0) AS net, "
-        "       COALESCE((SELECT SUM(minutes) FROM time_logs tl "
-        "                 WHERE tl.project_id = p.id), 0) AS minutes "
-        "FROM projects p WHERE 1=1 "
+    # Aggregate net and minutes in two grouped queries, then join in Python.
+    # Avoids N× correlated subqueries and the cartesian product of a naive JOIN.
+    net_sql = (
+        "SELECT project_id, COALESCE(SUM(net_amount), 0) AS net "
+        "FROM transactions WHERE occurred_at >= ? AND occurred_at <= ?"
     )
-    proj_args: list = [start_iso, end_iso]
+    net_args: list = [start_iso, end_iso]
     if project_id:
-        proj_sql += " AND p.id = ?"
+        net_sql += " AND project_id = ?"
+        net_args.append(project_id)
+    net_sql += " GROUP BY project_id"
+    net_by_project = {
+        r["project_id"]: round(r["net"] or 0, 2)
+        for r in conn.execute(net_sql, net_args).fetchall()
+    }
+
+    minutes_sql = "SELECT project_id, COALESCE(SUM(minutes), 0) AS minutes FROM time_logs"
+    minutes_args: list = []
+    if project_id:
+        minutes_sql += " WHERE project_id = ?"
+        minutes_args.append(project_id)
+    minutes_sql += " GROUP BY project_id"
+    minutes_by_project = {
+        r["project_id"]: r["minutes"] or 0
+        for r in conn.execute(minutes_sql, minutes_args).fetchall()
+    }
+
+    proj_sql = (
+        "SELECT id, name, category, status, started_at FROM projects WHERE 1=1"
+    )
+    proj_args: list = []
+    if project_id:
+        proj_sql += " AND id = ?"
         proj_args.append(project_id)
-    proj_sql += " ORDER BY net DESC"
+    projects = list(conn.execute(proj_sql, proj_args).fetchall())
 
     per_project = []
-    for r in conn.execute(proj_sql, proj_args).fetchall():
-        hours = (r["minutes"] or 0) / 60.0
-        net_v = round(r["net"] or 0, 2)
+    for r in projects:
+        pid = r["id"]
+        net_v = net_by_project.get(pid, 0.0)
+        minutes = minutes_by_project.get(pid, 0)
+        hours = minutes / 60.0
         # ROI is meaningful only when there's both revenue AND time invested.
         # Zero-revenue projects show None (would be infinite or misleading otherwise).
         if net_v > 0 and hours > 0:
@@ -176,11 +195,12 @@ def compute_metrics_for_window(
         else:
             roi = None
         per_project.append({
-            "id": r["id"], "name": r["name"], "category": r["category"],
+            "id": pid, "name": r["name"], "category": r["category"],
             "status": r["status"], "started_at": r["started_at"],
-            "net": net_v, "minutes": r["minutes"] or 0, "hours": round(hours, 2),
+            "net": net_v, "minutes": minutes, "hours": round(hours, 2),
             "revenue_per_hour": roi,
         })
+    per_project.sort(key=lambda p: p["net"], reverse=True)
 
     # Time-to-income per project (only projects that actually earned)
     tti_sql = (

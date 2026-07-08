@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1 — 2026-07-08
+
+### Hardening (Wave 4)
+
+- **HTTP secret redaction** — `HttpError` strips `access_token` / API key query params from exception messages (Gumroad-safe)
+- **Report delta** — clarified prior-zero percent handling (`new` / `n/a` labels)
+- **Import auto-projects** — always use valid schema category `service` (removed dead `"other"` category check)
+- **Metrics** — per-project aggregations via grouped queries instead of N× correlated subqueries
+- **Dashboard `--compare`** — reuses `build_report` current-window metrics (no double compute)
+- **`AT_LOG_LEVEL`** — wired to `logging.basicConfig` in CLI entry
+- Bash completion covers `report`, `time`, `import csv|sync`, `export-csv`
+- **`test_backup.py`** — snapshot, rotation, JSON export, seed idempotency (+6 tests → **65 total**)
+- Handoff doc: `docs/NEXT-AGENT.md`
+
 ## 0.4.0 — 2026-07-05
 
 ### Reporting & review (Wave 3)
